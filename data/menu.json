@@ -1,0 +1,729 @@
+{
+  "brand": {
+    "name": "ILIAMO",
+    "subtitle": "Kitchen & Bar",
+    "logo": "assets/logo.webp",
+    "siteUrl": "www.iliamo.bar",
+    "links": [
+      {
+        "id": "instagram",
+        "icon": "instagram",
+        "label": "Instagram",
+        "url": "https://www.instagram.com/iliamo.bar"
+      },
+      {
+        "id": "google-maps",
+        "icon": "google-maps",
+        "label": "Google Maps",
+        "url": "https://maps.app.goo.gl/Tfx8d7XBaVoXPbjs5"
+      },
+      {
+        "id": "yandex-maps",
+        "icon": "yandex-maps",
+        "label": "Yandex Maps",
+        "url": "https://yandex.com/maps/org/iliamo_kitchen_bar/165753179842?si=qgwc4yt112krnyduquvu0f9emw"
+      }
+    ]
+  },
+  "navigation": {
+    "initialSection": "beer"
+  },
+  "leadSections": [
+    "strong",
+    "main"
+  ],
+  "categories": [
+    {
+      "id": "beer",
+      "title": "ПИВО",
+      "label": "Пиво",
+      "theme": "drink",
+      "icon": "beer"
+    },
+    {
+      "id": "cocktails",
+      "title": "КОКТЕЙЛИ",
+      "label": "Коктейли",
+      "theme": "drink",
+      "icon": "cocktail"
+    },
+    {
+      "id": "strong",
+      "title": "КРЕПКИЙ АЛКОГОЛЬ",
+      "label": "Крепкий алкоголь",
+      "theme": "drink",
+      "icon": "shot"
+    },
+    {
+      "id": "wine",
+      "title": "ВИНО",
+      "label": "Вино",
+      "theme": "drink",
+      "icon": "wine"
+    },
+    {
+      "id": "soft",
+      "title": "БЕЗАЛКОГОЛЬНЫЕ НАПИТКИ",
+      "label": "Безалкогольные напитки",
+      "theme": "drink",
+      "icon": "soft"
+    },
+    {
+      "id": "lemonades",
+      "title": "КРАФТОВЫЕ ЛИМОНАДЫ",
+      "label": "Крафтовые лимонады",
+      "theme": "drink",
+      "icon": "lemonade"
+    },
+    {
+      "id": "coffee",
+      "title": "КОФЕ",
+      "label": "Кофе",
+      "theme": "drink",
+      "icon": "coffee"
+    },
+    {
+      "id": "tea",
+      "title": "ЧАЙ",
+      "label": "Чай",
+      "theme": "drink",
+      "icon": "tea"
+    },
+    {
+      "id": "snacks",
+      "title": "ЗАКУСКИ",
+      "label": "Закуски",
+      "theme": "food",
+      "icon": "food"
+    },
+    {
+      "id": "main",
+      "title": "ОСНОВНОЕ",
+      "label": "Основное",
+      "theme": "food",
+      "icon": "food"
+    },
+    {
+      "id": "salads",
+      "title": "САЛАТЫ",
+      "label": "Салаты",
+      "theme": "food",
+      "icon": "salad"
+    },
+    {
+      "id": "soups",
+      "title": "СУПЫ",
+      "label": "Супы",
+      "theme": "food",
+      "icon": "soup"
+    },
+    {
+      "id": "sauces",
+      "title": "СОУСЫ",
+      "label": "Соусы",
+      "theme": "food",
+      "icon": "sauce"
+    }
+  ],
+  "sections": [
+    {
+      "id": "beer",
+      "title": "ПИВО",
+      "label": "Пиво",
+      "theme": "drink",
+      "note": "",
+      "groups": [
+        {
+          "title": "Разливное",
+          "note": "",
+          "items": [
+            {
+              "name": "Лагер",
+              "price": "8 ₾",
+              "desc": "Разливное пиво",
+              "icon": "beer"
+            },
+            {
+              "name": "Пшеничное",
+              "price": "10 ₾",
+              "desc": "Разливное пиво",
+              "image": "assets/menu/wheat.webp",
+              "icon": "beer"
+            },
+            {
+              "name": "Ягодное",
+              "price": "10 ₾",
+              "desc": "Разливное пиво",
+              "icon": "beer"
+            },
+            {
+              "name": "Red IPA",
+              "price": "11 ₾",
+              "desc": "Разливное пиво",
+              "icon": "beer"
+            },
+            {
+              "name": "Тёмный пшеничный стаут",
+              "price": "12 ₾",
+              "desc": "Разливное пиво",
+              "icon": "beer"
+            }
+          ]
+        },
+        {
+          "title": "Бутылочное",
+          "note": "",
+          "items": [
+            {
+              "name": "Пшеничное",
+              "price": "9 ₾",
+              "desc": "Бутылочное пиво",
+              "icon": "beer"
+            },
+            {
+              "name": "Лидское лагер",
+              "price": "10 ₾",
+              "desc": "Бутылочное пиво",
+              "icon": "beer"
+            },
+            {
+              "name": "Крафт / Сидр / Медовуха",
+              "price": "12 ₾",
+              "desc": "Бутылочное пиво",
+              "icon": "beer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cocktails",
+      "title": "КОКТЕЙЛИ",
+      "label": "Коктейли",
+      "theme": "drink",
+      "note": "",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Cuba Libre",
+              "price": "17 ₾",
+              "desc": "ром, лайм, кола",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Gin & Tonic",
+              "price": "17 ₾",
+              "desc": "джин, тоник, лимон",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Whiskey Cola",
+              "price": "17 ₾",
+              "desc": "виски, кола",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Bloody Mary",
+              "price": "17 ₾",
+              "desc": "водка, томатный сок, специи",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Stinger",
+              "price": "18 ₾",
+              "desc": "виски, мятный ликёр",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Tequila Sunrise",
+              "price": "19 ₾",
+              "desc": "текила, апельсиновый сок, гренадин",
+              "icon": "cocktail"
+            },
+            {
+              "name": "White Russian",
+              "price": "21 ₾",
+              "desc": "водка, кофейный ликёр, сливки",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Black Russian",
+              "price": "22 ₾",
+              "desc": "водка, кофейный ликёр",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Northern Lights",
+              "price": "22 ₾",
+              "desc": "водка, игристое вино",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Jägerbomb",
+              "price": "22 ₾",
+              "desc": "Jägermeister, энергетик",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Jäger Stout",
+              "price": "22 ₾",
+              "desc": "Jägermeister, стаут",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Dry Martini",
+              "price": "26 ₾",
+              "desc": "джин, сухой вермут",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Vodkatini",
+              "price": "28 ₾",
+              "desc": "водка, сухой вермут",
+              "icon": "cocktail"
+            },
+            {
+              "name": "Long Island Iced Tea",
+              "price": "29 ₾",
+              "desc": "водка, ром, джин, текила, Triple Sec, кола",
+              "icon": "cocktail"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "strong",
+      "title": "КРЕПКИЙ АЛКОГОЛЬ",
+      "label": "Крепкий алкоголь",
+      "theme": "drink",
+      "note": "50 мл",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Настойки",
+              "price": "6 ₾",
+              "lead": true,
+              "icon": "shot"
+            },
+            {
+              "name": "Водка",
+              "price": "10 ₾",
+              "icon": "shot"
+            },
+            {
+              "name": "Jägermeister",
+              "price": "10 ₾",
+              "icon": "shot"
+            },
+            {
+              "name": "Джин",
+              "price": "12 ₾",
+              "icon": "shot"
+            },
+            {
+              "name": "Белый ром",
+              "price": "12 ₾",
+              "icon": "shot"
+            },
+            {
+              "name": "Виски Clan MacGregor",
+              "price": "12 ₾",
+              "icon": "shot"
+            },
+            {
+              "name": "Jack Daniel's",
+              "price": "17 ₾",
+              "icon": "shot"
+            },
+            {
+              "name": "VSOP",
+              "price": "12 ₾",
+              "icon": "shot"
+            },
+            {
+              "name": "Текила",
+              "price": "12 ₾",
+              "icon": "shot"
+            },
+            {
+              "name": "MARTINI Bianco",
+              "price": "16 ₾",
+              "desc": "100 мл",
+              "icon": "shot"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wine",
+      "title": "ВИНО",
+      "label": "Вино",
+      "theme": "drink",
+      "note": "150 мл",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Вино",
+              "price": "9 ₾",
+              "icon": "wine",
+              "image": "assets/menu/red_dry_wine.webp"
+            },
+            {
+              "name": "Игристое вино",
+              "price": "15 ₾",
+              "icon": "wine"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "soft",
+      "title": "БЕЗАЛКОГОЛЬНЫЕ НАПИТКИ",
+      "label": "Безалкогольные напитки",
+      "theme": "drink",
+      "note": "",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Пшеничное пиво 0%",
+              "price": "8 ₾",
+              "image": "assets/menu/lida_zero.webp",
+              "icon": "soft"
+            },
+            {
+              "name": "Лидский квас светлый",
+              "price": "9 ₾",
+              "image": "assets/menu/kvas_light.webp",
+              "icon": "soft"
+            },
+            {
+              "name": "Red Bull",
+              "price": "10 ₾",
+              "icon": "soft"
+            },
+            {
+              "name": "Газированные напитки / тоник",
+              "price": "6 ₾",
+              "desc": "Кола • Кола Zero • Fanta • Schweppes",
+              "icon": "soft"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lemonades",
+      "title": "КРАФТОВЫЕ ЛИМОНАДЫ",
+      "label": "Крафтовые лимонады",
+      "theme": "drink",
+      "note": "",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Клубника-йогурт",
+              "price": "9 ₾",
+              "icon": "lemonade"
+            },
+            {
+              "name": "Сахарная вата",
+              "price": "9 ₾",
+              "icon": "lemonade"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "coffee",
+      "title": "КОФЕ",
+      "label": "Кофе",
+      "theme": "drink",
+      "note": "",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Эспрессо",
+              "price": "6 ₾",
+              "icon": "coffee"
+            },
+            {
+              "name": "Американо",
+              "price": "7 ₾",
+              "icon": "coffee"
+            },
+            {
+              "name": "Капучино",
+              "price": "9 ₾",
+              "icon": "coffee"
+            },
+            {
+              "name": "Латте",
+              "price": "10 ₾",
+              "icon": "coffee"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tea",
+      "title": "ЧАЙ",
+      "label": "Чай",
+      "theme": "drink",
+      "note": "чёрный / зелёный · 11 ₾",
+      "groups": [
+        {
+          "title": "Вкусы",
+          "note": "",
+          "items": [
+            {
+              "name": "Груша-жасмин",
+              "icon": "tea"
+            },
+            {
+              "name": "Цитрус-микс",
+              "icon": "tea"
+            },
+            {
+              "name": "Апельсин, имбирь, корица",
+              "icon": "tea"
+            },
+            {
+              "name": "Малина-облепиха",
+              "icon": "tea"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "snacks",
+      "title": "ЗАКУСКИ",
+      "label": "Закуски",
+      "theme": "food",
+      "note": "",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Солёный арахис",
+              "price": "6 ₾",
+              "image": "assets/menu/salted_peanuts.webp",
+              "icon": "food"
+            },
+            {
+              "name": "Гренки чесночные",
+              "price": "9 ₾",
+              "image": "assets/menu/garlic_croutons.webp",
+              "icon": "food"
+            },
+            {
+              "name": "Картофель фри",
+              "price": "9 ₾",
+              "image": "assets/menu/fries.webp",
+              "icon": "food"
+            },
+            {
+              "name": "Картофель по-мексикански",
+              "price": "10 ₾",
+              "icon": "food"
+            },
+            {
+              "name": "Сырные палочки",
+              "price": "12 ₾",
+              "image": "assets/menu/cheese_sticks_5.webp",
+              "icon": "food"
+            },
+            {
+              "name": "Куриные стрипсы",
+              "price": "14 ₾",
+              "image": "assets/menu/chicken_strips.webp",
+              "icon": "food"
+            },
+            {
+              "name": "Ассорти к пиву",
+              "price": "34 ₾",
+              "desc": "гренки чесночные, картофель фри, куриные стрипсы, сырные палочки, солёный арахис",
+              "image": "assets/menu/assorted_beer.webp",
+              "icon": "food"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "main",
+      "title": "ОСНОВНОЕ",
+      "label": "Основное",
+      "theme": "food",
+      "note": "",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Невероятно вкусная шаверма",
+              "price": "18 ₾",
+              "desc": "лаваш, куриное бедро, свежие огурцы, помидоры, салат айсберг, репчатый лук, фирменный чесночный соус.",
+              "image": "assets/menu/shawarma_amazing.webp",
+              "lead": true,
+              "icon": "food"
+            },
+            {
+              "name": "Очень сырная шаверма",
+              "price": "20 ₾",
+              "desc": "лаваш, куриное бедро, свежие огурцы, помидоры, салат айсберг, репчатый лук, сыр чеддер, сыр моцарелла, сырный соус, фирменный чесночный соус.",
+              "image": "assets/menu/shawarma_cheesy.webp",
+              "icon": "food"
+            },
+            {
+              "name": "Кесадилья с яйцом и сыром",
+              "price": "13 ₾",
+              "desc": "тортилья, яйцо, сыр моцарелла, сыр чеддер. Подаётся с томатным соусом.",
+              "image": "assets/menu/quesadilla_egg_cheese.webp",
+              "icon": "food"
+            },
+            {
+              "name": "Кесадилья с ветчиной и сыром",
+              "price": "14 ₾",
+              "desc": "тортилья, ветчина, сыр моцарелла, сыр чеддер. Подаётся с медово-горчичным соусом.",
+              "image": "assets/menu/quesadilla_ham_cheese.webp",
+              "icon": "food"
+            },
+            {
+              "name": "Клаб-сэндвич с картофелем фри",
+              "price": "18 ₾",
+              "image": "assets/menu/club_sandwich.webp",
+              "icon": "food"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "salads",
+      "title": "САЛАТЫ",
+      "label": "Салаты",
+      "theme": "food",
+      "note": "",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Грузинский салат с тахином",
+              "price": "12 ₾",
+              "desc": "свежие огурцы, помидоры, репчатый лук, соус тахини, гранатовый соус, специи.",
+              "icon": "salad"
+            },
+            {
+              "name": "Шпротный салат",
+              "price": "14 ₾",
+              "desc": "шпроты, фасоль, кукуруза, чесночные гренки, майонез, специи.",
+              "icon": "salad"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "soups",
+      "title": "СУПЫ",
+      "label": "Супы",
+      "theme": "food",
+      "note": "",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Чечевичный крем-суп",
+              "price": "10 ₾",
+              "icon": "soup"
+            },
+            {
+              "name": "Грибной крем-суп из шампиньонов",
+              "price": "12 ₾",
+              "icon": "soup"
+            },
+            {
+              "name": "Сырный суп с фрикадельками",
+              "price": "13 ₾",
+              "icon": "soup"
+            },
+            {
+              "name": "Том ям с курицей",
+              "price": "15 ₾",
+              "icon": "soup"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sauces",
+      "title": "СОУСЫ",
+      "label": "Соусы",
+      "theme": "food",
+      "note": "3 ₾",
+      "groups": [
+        {
+          "title": "",
+          "note": "",
+          "items": [
+            {
+              "name": "Сырный",
+              "icon": "sauce"
+            },
+            {
+              "name": "Кетчуп",
+              "icon": "sauce"
+            },
+            {
+              "name": "Чесночный",
+              "icon": "sauce"
+            },
+            {
+              "name": "Сладкий чили",
+              "icon": "sauce"
+            },
+            {
+              "name": "Барбекю",
+              "icon": "sauce"
+            },
+            {
+              "name": "Медово-горчичный",
+              "icon": "sauce"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+name: build-check
+
+# Fails if data/menu.json is invalid, references a missing photo, or the committed
+# index.html / app.min.js are stale (i.e. someone edited the menu but forgot to run
+# `python3 build.py`). Keeps the published site consistent with the source of truth.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Validate menu and verify build is up to date
+        run: python3 build.py --check
