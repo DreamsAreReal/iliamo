@@ -219,3 +219,23 @@ jobs:
           done
           gh workflow run smoke.yml --repo "$REPO"
           echo "PR not merged within 10 minutes; smoke dispatched anyway (idempotent)"
+
+      - name: Delete the merged branch (repo-level auto-delete skips app merges)
+        if: >-
+          steps.verdict.outputs.candidate == 'true' &&
+          steps.verdict.outputs.clean == 'true'
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        # delete_branch_on_merge is silent when the merge author is
+        # app/github-actions (observed live on PRs #5, #12, #13), so the
+        # workflow cleans up after itself. candidate=true implies a same-repo
+        # non-revert branch, so this can never touch someone else's ref.
+        run: |
+          state=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq .state)
+          if [ "$state" = "MERGED" ]; then
+            gh api -X DELETE "repos/$REPO/git/refs/heads/$HEAD_REF" \
+              && echo "deleted branch $HEAD_REF" \
+              || echo "branch $HEAD_REF already gone"
+          else
+            echo "PR state is $state, leaving the branch in place"
+          fi

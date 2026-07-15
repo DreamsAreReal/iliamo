@@ -4,8 +4,12 @@ name: build-check
 # index.html / app.min.js are stale (i.e. someone edited the menu but forgot to run
 # `python3 build.py`). Keeps the published site consistent with the source of truth.
 
+# push is limited to main so a PR branch is not checked twice (the
+# pull_request run covers it); direct pushes to main still get their run,
+# which also feeds the push-watchdog workflow.
 on:
   push:
+    branches: [main]
   pull_request:
 
 # Validation only: this workflow needs nothing beyond reading the repo.

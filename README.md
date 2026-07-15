@@ -34,9 +34,30 @@ Codex; the owner-facing guide is **КАК-МЕНЯТЬ-САЙТ.md**).
 
 ## Publishing
 
-Push to the default branch. Cloudflare Pages is connected to this repository and
-redeploys `iliamo.bar` automatically (no build command; the site is served as static
-files from the repository root).
+Publication goes through a pull request into `main` — never push to `main`
+directly (`main` is protected by the required `check` and `guard` statuses;
+direct pushes bypass the pre-merge safety net and are rolled back by the
+push-watchdog workflow when red).
+
+The delivery pipeline (see `.github/workflows/`):
+
+- **build-check** — runs `python3 build.py --check` on every PR and on every
+  push to `main`; a red check cannot merge.
+- **automerge** — the trusted judge (`pull_request_target`, executes from the
+  base branch): menu-content PRs from `codex/*` branches that pass the diff
+  guard (`tools/pr_guard.py`, including the report==diff body check) are
+  merged automatically; anything touching code, styles source or workflows
+  waits for the owner. It also dispatches the post-merge smoke and deletes
+  the merged branch.
+- **smoke** — after each deploy, verifies that production serves exactly what
+  `main` holds (byte-for-byte); on failure prepares a revert PR.
+- **push-watchdog** — direct pushes to `main` (admin bypass): green ones get
+  the smoke, red ones get an automatic revert PR.
+
+Cloudflare Pages is connected to this repository and redeploys `iliamo.bar`
+on every change of `main` (no build command; the site is served as static
+files from the repository root). Every PR branch gets a preview at
+`https://<branch>.aspen-bar.pages.dev` (with `/` replaced by `-`).
 
 ## Local preview
 
