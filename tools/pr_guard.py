@@ -11,8 +11,12 @@ Everything else in the allowlist is policed elsewhere: data/menu.json by
 build.py --check, styles.min.css by the freshness fingerprint (styles.css
 itself is outside the allowlist), assets by the photo existence check.
 
-Usage (inside the PR head checkout, full history fetched):
-    python3 tools/pr_guard.py --base <base sha>
+The script runs from a TRUSTED checkout (the PR base, i.e. main) and reads
+both sides via `git show`, so PR content is data only and can never replace
+the guard that judges it.
+
+Usage (both commits fetched into the local repository):
+    python3 tools/pr_guard.py --base <base sha> --head <head sha>
 
 Exit 0 — clean. Exit 1 — violations, one per line on stdout.
 """
@@ -44,28 +48,25 @@ def normalise_scaffold(text: str) -> str:
     return FALLBACK_RE.sub(r"\1X\3", text, count=1)
 
 
-def at_base(base: str, path: str) -> str | None:
+def at_commit(commit: str, path: str) -> str | None:
     result = subprocess.run(
-        ["git", "show", f"{base}:{path}"],
+        ["git", "show", f"{commit}:{path}"],
         capture_output=True, text=True, cwd=ROOT,
     )
     return result.stdout if result.returncode == 0 else None
 
 
-def at_head(path: str) -> str | None:
-    file = ROOT / path
-    return file.read_text(encoding="utf-8") if file.exists() else None
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True, help="base commit sha of the PR")
+    parser.add_argument("--head", required=True, help="head commit sha of the PR")
     args = parser.parse_args()
 
     violations: list[str] = []
 
     for path in ("app.js", "app.min.js"):
-        base_text, head_text = at_base(args.base, path), at_head(path)
+        base_text = at_commit(args.base, path)
+        head_text = at_commit(args.head, path)
         if base_text is None or head_text is None:
             if base_text != head_text:
                 violations.append(f"{path}: added or removed entirely")
@@ -73,7 +74,8 @@ def main() -> int:
         if normalise_js(base_text) != normalise_js(head_text):
             violations.append(f"{path}: changed beyond the ASSET_VERSION token")
 
-    base_html, head_html = at_base(args.base, "index.html"), at_head("index.html")
+    base_html = at_commit(args.base, "index.html")
+    head_html = at_commit(args.head, "index.html")
     if base_html is None or head_html is None:
         if base_html != head_html:
             violations.append("index.html: added or removed entirely")
