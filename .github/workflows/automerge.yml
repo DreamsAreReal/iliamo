@@ -45,6 +45,15 @@ jobs:
       REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
+      # Needed by the diff guard: PR head files + base commit history.
+      # Safe to run guard code from this checkout: the guard only executes
+      # when every changed path is inside the content allowlist, and
+      # tools/ + .github/ are OUTSIDE it (a PR cannot smuggle a guard edit).
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
       - name: Check changed paths against the content allowlist
         id: paths
         run: |
@@ -66,19 +75,38 @@ jobs:
           echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
           echo "blocked=${blocked#, }" >> "$GITHUB_OUTPUT"
 
-      - name: Enable auto-merge (GitHub merges after required checks pass)
+      - name: Diff guard — generated files may change only in the generated way
+        id: guard
         if: steps.paths.outputs.allowed == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          status=0
+          python3 tools/pr_guard.py --base "$BASE_SHA" > guard.txt || status=$?
+          cat guard.txt
+          if [ "$status" -eq 0 ]; then
+            echo "clean=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+          fi
+          details=$(grep '^PR GUARD VIOLATION' guard.txt | sed 's/^PR GUARD VIOLATION: //' | paste -sd ';' - || true)
+          echo "details=$details" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge (GitHub merges after required checks pass)
+        if: steps.paths.outputs.allowed == 'true' && steps.guard.outputs.clean == 'true'
         run: gh pr merge --auto --squash "$PR_NUMBER" --repo "$REPO"
 
       - name: Dispatch the post-deploy smoke once the PR merges
-        if: steps.paths.outputs.allowed == 'true'
+        if: steps.paths.outputs.allowed == 'true' && steps.guard.outputs.clean == 'true'
         # A merge push made by GITHUB_TOKEN emits no workflow-triggering
         # events (verified live on PR #12), but workflow_dispatch is the
         # documented exception: it does create runs even from GITHUB_TOKEN.
-        # If the PR has not merged within the wait window (e.g. red CI),
-        # nothing is dispatched — the cron smoke still covers everything.
+        # The wait covers slow runner queues (up to 10 minutes); if the PR
+        # still has not merged by then, the smoke is dispatched anyway — it
+        # is idempotent and green on a healthy production. The 5-minute cron
+        # (first live tick verified 2026-07-15 20:17Z) is the safety net.
         run: |
-          for _ in $(seq 1 24); do
+          for _ in $(seq 1 120); do
             state=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq .state)
             if [ "$state" = "MERGED" ]; then
               gh workflow run smoke.yml --repo "$REPO"
@@ -91,12 +119,17 @@ jobs:
             fi
             sleep 5
           done
-          echo "PR not merged within the wait window; the cron smoke covers it"
+          gh workflow run smoke.yml --repo "$REPO"
+          echo "PR not merged within 10 minutes; smoke dispatched anyway (idempotent)"
 
       - name: Ask the owner to confirm (single comment, never repeated)
-        if: steps.paths.outputs.allowed != 'true'
+        if: >-
+          steps.paths.outputs.allowed != 'true' ||
+          steps.guard.outputs.clean == 'false'
         env:
           BLOCKED: ${{ steps.paths.outputs.blocked }}
+          ALLOWED: ${{ steps.paths.outputs.allowed }}
+          GUARD_DETAILS: ${{ steps.guard.outputs.details }}
         run: |
           marker="<!-- automerge: waiting for owner -->"
           if gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
@@ -105,7 +138,12 @@ jobs:
             exit 0
           fi
           # The comment itself is Russian: it is addressed to the bar owner.
+          if [ "$ALLOWED" != "true" ]; then
+            reason="изменение выходит за меню ($BLOCKED)"
+          else
+            reason="изменение затрагивает код или каркас сайта, а не только меню ($GUARD_DETAILS)"
+          fi
           printf '%s\n%s\n' \
             "$marker" \
-            "Жду подтверждения владельца: изменение выходит за меню ($BLOCKED). Автоматической публикации не будет — такие изменения владелец подтверждает сам." \
+            "Жду подтверждения владельца: $reason. Автоматической публикации не будет — такие изменения владелец подтверждает сам." \
             | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
