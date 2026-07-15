@@ -7,9 +7,10 @@ name: smoke
 # Trigger: the Cloudflare Pages GitHub App reports every deploy as a check
 # run named "Cloudflare Pages" (it creates NO deployment events — verified
 # in F1), and events from a third-party App do trigger workflows, unlike
-# events from GITHUB_TOKEN. workflow_dispatch exists for manual runs and for
-# testing the failure path: expect_sha256 replaces the reference hash with a
-# deliberately wrong one WITHOUT touching production.
+# events from GITHUB_TOKEN. Verified live 2026-07-15: a push to main started
+# this workflow via check_run ~30 s later. workflow_dispatch exists for
+# manual runs and for testing the failure path: expect_sha256 replaces the
+# reference hash with a deliberately wrong one WITHOUT touching production.
 #
 # On failure the workflow prepares a revert PR (branch revert/*, excluded
 # from automerge — the owner or Codex confirms it) with a Russian comment.
