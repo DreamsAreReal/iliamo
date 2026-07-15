@@ -29,6 +29,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write  # to dispatch the post-merge smoke workflow
 
 jobs:
   automerge:
@@ -68,6 +69,29 @@ jobs:
       - name: Enable auto-merge (GitHub merges after required checks pass)
         if: steps.paths.outputs.allowed == 'true'
         run: gh pr merge --auto --squash "$PR_NUMBER" --repo "$REPO"
+
+      - name: Dispatch the post-deploy smoke once the PR merges
+        if: steps.paths.outputs.allowed == 'true'
+        # A merge push made by GITHUB_TOKEN emits no workflow-triggering
+        # events (verified live on PR #12), but workflow_dispatch is the
+        # documented exception: it does create runs even from GITHUB_TOKEN.
+        # If the PR has not merged within the wait window (e.g. red CI),
+        # nothing is dispatched — the cron smoke still covers everything.
+        run: |
+          for _ in $(seq 1 24); do
+            state=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state --jq .state)
+            if [ "$state" = "MERGED" ]; then
+              gh workflow run smoke.yml --repo "$REPO"
+              echo "post-merge smoke dispatched"
+              exit 0
+            fi
+            if [ "$state" = "CLOSED" ]; then
+              echo "PR closed without merge, no smoke needed"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "PR not merged within the wait window; the cron smoke covers it"
 
       - name: Ask the owner to confirm (single comment, never repeated)
         if: steps.paths.outputs.allowed != 'true'
