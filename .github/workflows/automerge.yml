@@ -101,8 +101,12 @@ jobs:
           gen_clean=true
           details=""
           if [ "$allowed" = "true" ]; then
+            # PR body is needed for the report==diff rule (G8): every changed
+            # menu item name must be mentioned in the Russian report.
+            gh pr view "$PR_NUMBER" --repo "$REPO" --json body --jq .body > body.txt
             status=0
-            python3 tools/pr_guard.py --base "$BASE_SHA" --head "$HEAD_SHA" > guard.txt || status=$?
+            python3 tools/pr_guard.py --base "$BASE_SHA" --head "$HEAD_SHA" \
+              --body-file body.txt > guard.txt || status=$?
             cat guard.txt
             if [ "$status" -ne 0 ]; then
               gen_clean=false

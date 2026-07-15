@@ -24,6 +24,7 @@ Exit 0 — clean. Exit 1 — violations, one per line on stdout.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -60,6 +61,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True, help="base commit sha of the PR")
     parser.add_argument("--head", required=True, help="head commit sha of the PR")
+    parser.add_argument(
+        "--body-file",
+        default=None,
+        help="file with the PR body; when given, every changed menu item name "
+        "must be mentioned there (the report==diff enforcement, G8)",
+    )
     args = parser.parse_args()
 
     violations: list[str] = []
@@ -85,12 +92,63 @@ def main() -> int:
             "and the version token"
         )
 
+    if args.body_file is not None:
+        body = Path(args.body_file).read_text(encoding="utf-8")
+        for name in sorted(changed_item_names(args.base, args.head)):
+            if name not in body:
+                violations.append(
+                    f'report does not mention the changed item "{name}"'
+                )
+
     if violations:
         for violation in violations:
             print(f"PR GUARD VIOLATION: {violation}")
         return 1
     print("PR GUARD OK: generated files only changed in the generated way.")
     return 0
+
+
+def item_index(commit: str) -> dict[tuple[str, str, str], str] | None:
+    """Map (section id, group title, item name) -> canonical item JSON."""
+    raw = at_commit(commit, "data/menu.json")
+    if raw is None:
+        return None
+    try:
+        menu = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    index: dict[tuple[str, str, str], str] = {}
+    for section in menu.get("sections", []):
+        if not isinstance(section, dict):
+            continue
+        for group in section.get("groups", []) or []:
+            if not isinstance(group, dict):
+                continue
+            for item in group.get("items", []) or []:
+                if isinstance(item, dict) and isinstance(item.get("name"), str):
+                    key = (
+                        str(section.get("id")),
+                        str(group.get("title")),
+                        item["name"],
+                    )
+                    index[key] = json.dumps(item, ensure_ascii=False, sort_keys=True)
+    return index
+
+
+def changed_item_names(base: str, head: str) -> set[str]:
+    """Names of menu items added, removed or modified between two commits.
+
+    The report==diff rule (G8): every one of these names must appear in the
+    PR body, otherwise the owner cannot see what actually changed.
+    """
+    base_items, head_items = item_index(base), item_index(head)
+    if base_items is None or head_items is None:
+        return set()  # unparseable side: build-check rejects the PR anyway
+    changed: set[str] = set()
+    for key in base_items.keys() | head_items.keys():
+        if base_items.get(key) != head_items.get(key):
+            changed.add(key[2])
+    return changed
 
 
 if __name__ == "__main__":
