@@ -1,0 +1,154 @@
+name: push-watchdog
+
+# Closes the direct-push hole (observed live, see docs/evidence/F11): the
+# owner's Codex session can push straight to main through the admin bypass,
+# so a broken commit deploys BEFORE any check turns red. This watchdog
+# reacts to the completed build-check run of every direct push to main:
+#   * red   -> prepare a revert PR (branch revert/*, never auto-merged;
+#              mirrors the proven revert mechanism of smoke.yml) with a
+#              Russian owner comment;
+#   * green -> dispatch the post-deploy smoke, exactly like the automerge
+#              workflow does after a merge.
+#
+# Trigger notes (facts verified live in M1/M2):
+#   * pushes made by humans and by the owner's Codex DO create build-check
+#     runs, so workflow_run fires for them;
+#   * merges made by GITHUB_TOKEN emit no workflow_run events, but those
+#     commits pass the required `check` + `guard` gates BEFORE the merge and
+#     get their smoke dispatched by automerge.yml — no coverage gap;
+#   * build-check also runs on pull requests; those runs are pre-merge and
+#     already policed, so the job condition skips everything but pushes to
+#     main (the skipped-run history doubles as no-false-alarm evidence).
+#
+# Failure-path testing without touching production: workflow_dispatch with
+# `simulate_bad_sha` walks the revert path for a given main commit as if its
+# build-check had failed (same idea as expect_sha256 in smoke.yml).
+
+on:
+  workflow_run:
+    workflows: [build-check]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      simulate_bad_sha:
+        description: "Treat this main commit as red (failure-path test, production untouched)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write        # push the revert branch
+  pull-requests: write   # open the revert PR, owner comment
+  statuses: write        # inject the required contexts on the revert branch
+  actions: write         # dispatch the smoke workflow
+
+jobs:
+  watchdog:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Decide the verdict for this push
+        id: verdict
+        env:
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SIMULATED: ${{ github.event.inputs.simulate_bad_sha }}
+        run: |
+          if [ -n "$SIMULATED" ]; then
+            echo "FAILURE-PATH TEST: simulating a red build-check on $SIMULATED"
+            echo "bad=true" >> "$GITHUB_OUTPUT"
+            echo "sha=$SIMULATED" >> "$GITHUB_OUTPUT"
+          elif [ "$CONCLUSION" = "failure" ]; then
+            echo "bad=true" >> "$GITHUB_OUTPUT"
+            echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "bad=false" >> "$GITHUB_OUTPUT"
+            echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+            echo "green build-check on main push $HEAD_SHA (conclusion: ${CONCLUSION:-manual})"
+          fi
+
+      - name: Dispatch the post-deploy smoke on a green push
+        if: steps.verdict.outputs.bad == 'false'
+        run: |
+          gh workflow run smoke.yml --repo "$REPO"
+          echo "green direct push: post-deploy smoke dispatched"
+
+      - uses: actions/checkout@v4
+        if: steps.verdict.outputs.bad == 'true'
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        if: steps.verdict.outputs.bad == 'true'
+        with:
+          python-version: "3.x"
+
+      - name: Prepare a revert PR (mirrors smoke.yml; the owner confirms it)
+        if: steps.verdict.outputs.bad == 'true'
+        env:
+          BAD_SHA: ${{ steps.verdict.outputs.sha }}
+        run: |
+          # One open revert PR at a time: do not pile up duplicates.
+          open_reverts=$(gh pr list --repo "$REPO" --state open \
+            --json headRefName --jq '[.[] | select(.headRefName | startswith("revert/"))] | length')
+          if [ "$open_reverts" -gt 0 ]; then
+            echo "an open revert PR already exists, not creating another"
+            exit 0
+          fi
+
+          short_sha=$(git rev-parse --short "$BAD_SHA")
+          branch="revert/$short_sha-$GITHUB_RUN_ID"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          if ! git revert --no-edit "$BAD_SHA"; then
+            # Later pushes conflict with the revert: a fresh watchdog run for
+            # the newest push owns the situation; do not guess here.
+            echo "git revert of $BAD_SHA does not apply cleanly, aborting"
+            git revert --abort || true
+            exit 1
+          fi
+
+          # Validate the reverted tree; the result feeds the injected status.
+          if python3 build.py --check; then
+            state=success
+            description="build.py --check passed (status injected by push-watchdog: GITHUB_TOKEN pushes trigger no CI)"
+          else
+            state=failure
+            description="build.py --check FAILED on the revert branch — do not merge as is"
+          fi
+
+          git push origin "$branch"
+          # GITHUB_TOKEN pushes trigger no workflows, so BOTH required
+          # contexts are injected here: `check` reflects the local
+          # build.py --check result; `guard` is success by construction —
+          # this branch is a pure revert created by the trusted watchdog.
+          gh api -X POST "repos/$REPO/statuses/$(git rev-parse HEAD)" \
+            -f state="$state" -f context=check -f description="$description"
+          gh api -X POST "repos/$REPO/statuses/$(git rev-parse HEAD)" \
+            -f state=success -f context=guard \
+            -f description="revert branch created by the trusted push-watchdog workflow"
+
+          # Owner-facing texts are Russian by design.
+          {
+            printf '%s\n\n' "## Отчёт"
+            printf '%s\n\n' "Изменение, отправленное напрямую на сайт (коммит $BAD_SHA), не прошло проверку. Этот PR его откатывает."
+            printf '%s\n' "Автоматической публикации отката не будет — его подтверждает владелец."
+          } > pr-body.md
+          pr_url=$(gh pr create --repo "$REPO" --head "$branch" --base main \
+            --title "revert: roll back $short_sha (direct push failed build-check)" \
+            --body-file pr-body.md)
+          gh pr comment "$pr_url" --repo "$REPO" --body "Прямое изменение не прошло проверку, я подготовил откат. Проверка отката: $state. Чтобы вернуть сайт в рабочее состояние — подтвердите этот PR (кнопка Merge) или напишите Codex: «верни как было»."
+          echo "revert PR: $pr_url"
+
+      - name: Fail the run when the push was red
+        if: >-
+          steps.verdict.outputs.bad == 'true' &&
+          github.event_name != 'workflow_dispatch'
+        run: exit 1
