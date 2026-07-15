@@ -41,6 +41,11 @@ ASSETS_MENU = ROOT / "assets" / "menu"
 # always parse them.
 PRICE_RE = re.compile(r"^(\d+) ₾$")
 
+# Sane price corridor for this menu (data today: 6–34 ₾, kept with a 3x margin).
+# A price outside it is most likely a typo ("110" instead of "11"); the owner
+# confirms an intentional one via `"priceConfirmed": "<price>"` on the item.
+PRICE_MIN, PRICE_MAX = 1, 100
+
 # Files that carry the cache-busting token and must be bumped together.
 VERSION_FILES = [INDEX_HTML, APP_JS, APP_MIN_JS]
 VERSION_RE = re.compile(r"const ASSET_VERSION = '([^']+)'")
@@ -142,6 +147,7 @@ def validate_menu(menu: dict) -> tuple[list[str], list[str]]:
             errors.append(f'section "{sid}": "groups" must be a list')
             continue
         lead_names: list[str] = []
+        item_count = 0
         for group in groups:
             if not isinstance(group, dict) or not isinstance(group.get("items", []), list):
                 errors.append(
@@ -149,10 +155,37 @@ def validate_menu(menu: dict) -> tuple[list[str], list[str]]:
                     f'"items" list, got: {group!r}'
                 )
                 continue
-            for item in group.get("items", []):
+            items = group.get("items", [])
+            if not items:
+                errors.append(
+                    f'section "{sid}": group "{group.get("title") or "(untitled)"}" '
+                    "has no items — add items or remove the empty group"
+                )
+                continue
+            item_count += len(items)
+            # Duplicate names are checked per group: the same name in two
+            # groups of one section is legitimate (e.g. draft vs bottled beer).
+            seen: set[str] = set()
+            for item in items:
                 _validate_item(sid, item, errors, warnings)
-                if isinstance(item, dict) and item.get("lead"):
-                    lead_names.append(str(item.get("name")))
+                if isinstance(item, dict):
+                    if item.get("lead"):
+                        lead_names.append(str(item.get("name")))
+                    item_name = item.get("name")
+                    if isinstance(item_name, str):
+                        if item_name in seen:
+                            errors.append(
+                                f'section "{sid}", group '
+                                f'"{group.get("title") or "(untitled)"}" has two '
+                                f'items named "{item_name}" — rename or remove one '
+                                "(duplicates confuse both guests and edits)"
+                            )
+                        seen.add(item_name)
+        if item_count == 0:
+            errors.append(
+                f'section "{sid}" has no items at all — add items or remove '
+                "the section together with its category"
+            )
         if len(lead_names) > 1:
             errors.append(
                 f'section "{sid}" has {len(lead_names)} lead items '
@@ -182,6 +215,11 @@ def _validate_item(
             f'an item in section "{section_id}" has no name: {item!r} — add "name"'
         )
         return
+    if any(ord(ch) < 32 for ch in name) or "<" in name or ">" in name:
+        errors.append(
+            f'item name {name!r} in section "{section_id}" contains HTML or '
+            "control characters — use plain text only"
+        )
     price = item.get("price")
     if price is not None:
         if not isinstance(price, str) or not PRICE_RE.match(price):
@@ -189,6 +227,16 @@ def _validate_item(
                 f'"{name}": price {price!r} is not in the "N ₾" format — '
                 'write it like "11 ₾" (integer, space, ₾)'
             )
+        else:
+            value = int(PRICE_RE.match(price).group(1))
+            confirmed = item.get("priceConfirmed")
+            if not (PRICE_MIN <= value <= PRICE_MAX) and confirmed != price:
+                errors.append(
+                    f'"{name}": price "{price}" is outside the sane range '
+                    f"{PRICE_MIN}–{PRICE_MAX} ₾ — probably a typo; if it is "
+                    "really intended, the owner must confirm it explicitly and "
+                    f'then set "priceConfirmed": "{price}" on this item'
+                )
     image = item.get("image")
     if image:
         path = ROOT / str(image)

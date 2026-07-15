@@ -113,6 +113,53 @@ p.write_text(text.replace(marker, "#C0162E", 1), encoding="utf-8")
 EOF
 }
 
+corrupt_price_out_of_range() {  # "110 ₾ instead of 11 ₾" typo, unconfirmed
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+for sec in menu["sections"]:
+    for gr in sec.get("groups", []):
+        for it in gr.get("items", []):
+            if it.get("price"):
+                it["price"] = "110 ₾"
+                p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+                raise SystemExit(0)
+EOF
+}
+
+corrupt_duplicate_names() {  # the same item twice in one group
+  python3 - "$1" <<'EOF'
+import copy, json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+group = menu["sections"][0]["groups"][0]
+group["items"].append(copy.deepcopy(group["items"][0]))
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_empty_group() {  # a group left with no items
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["sections"][0]["groups"][0]["items"] = []
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_html_in_name() {  # markup smuggled into an item name
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+item = menu["sections"][0]["groups"][0]["items"][0]
+item["name"] = item["name"] + ' <img src=x onerror="alert(1)">'
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
 # ---------------------------------------------------------------------------
 # Cases: <corruption name>|<file the error message must mention>
 # ---------------------------------------------------------------------------
@@ -125,6 +172,10 @@ CASES=(
   "stale_index|index.html"
   "stale_app_min|app.min.js"
   "stale_styles_min|styles.min.css"
+  "price_out_of_range|data/menu.json"
+  "duplicate_names|data/menu.json"
+  "empty_group|data/menu.json"
+  "html_in_name|data/menu.json"
 )
 
 make_copy() {
