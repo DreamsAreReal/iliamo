@@ -6,8 +6,10 @@ What it does (deterministic, no external dependencies):
   2. Injects the menu, minified, into the <script id="menu-data-fallback"> block
      inside index.html — this inline block is what the live site actually renders.
   3. Keeps app.min.js in sync with app.js (they must stay identical).
-  4. Bumps the cache-busting ASSET_VERSION in index.html, app.js and app.min.js so
-     browsers fetch the fresh CSS / JS / images instead of a stale cached copy.
+  4. Sets the cache-busting ASSET_VERSION in index.html, app.js and app.min.js to
+     a hash of the shipped content, so browsers fetch fresh CSS / JS / images
+     exactly when something actually changed (deterministic: same input -> same
+     output, byte for byte).
 
 Usage:
     python3 build.py            # build; fails loudly if the menu is broken
@@ -19,7 +21,7 @@ Exit code is non-zero on any error, so it is safe to gate a commit on it.
 from __future__ import annotations
 
 import argparse
-import datetime
+import hashlib
 import json
 import re
 import shutil
@@ -145,7 +147,21 @@ def inline_json(menu: dict) -> str:
 
 
 def new_version() -> str:
-    return datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    """Content hash of the shipped assets: same input -> same version.
+
+    The version token itself lives inside app.js / app.min.js, so hashing the
+    file literally would make the version depend on itself and never converge.
+    Instead the token is normalised to a placeholder before hashing; app.min.js
+    is a byte copy of app.js after the build, so hashing normalised app.js is
+    equivalent to hashing the normalised shipped file (spike S2 / ADR-0002).
+    """
+    hasher = hashlib.sha256()
+    hasher.update(MENU_JSON.read_bytes())
+    hasher.update((ROOT / "styles.min.css").read_bytes())
+    js_text = APP_JS.read_text(encoding="utf-8")
+    js_normalised = VERSION_RE.sub("const ASSET_VERSION = 'X'", js_text)
+    hasher.update(js_normalised.encode("utf-8"))
+    return hasher.hexdigest()[:10]
 
 
 def current_version() -> str:

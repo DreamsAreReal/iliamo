@@ -30,7 +30,7 @@
   let stackHeightTimer = 0;
   let scrollTicking = false;
   const preloadedImages = new Set();
-  const ASSET_VERSION = '20260713-042427';
+  const ASSET_VERSION = '1747de49f1';
 
   const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
