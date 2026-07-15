@@ -1,0 +1,84 @@
+name: automerge
+
+# Zero-tap delivery (ADR-0001, variant C).
+#
+# Arms GitHub auto-merge (squash) on pull requests coming from the Codex flow
+# when EVERY changed path stays inside the menu-content allowlist. The actual
+# merge is performed by GitHub only after the required "check" status passes,
+# so a red PR can never land — this workflow merely schedules the merge.
+#
+# Conditions (ALL must hold):
+#   * PR comes from a branch of this repository (forks are never auto-merged);
+#   * branch is codex/* OR the PR carries the "automerge" label;
+#   * branch is NOT revert/* (automated reverts must wait for the owner —
+#     protection against a bad-deploy/revert loop);
+#   * every changed file is one of: data/menu.json, index.html, app.min.js,
+#     styles.min.css, assets/menu/**.
+#
+# A PR that touches anything outside the allowlist (code, CI, docs) is NOT
+# merged automatically: the workflow leaves a single Russian comment asking
+# the owner to confirm, and never repeats it on later pushes.
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (startsWith(github.event.pull_request.head.ref, 'codex/') ||
+       contains(github.event.pull_request.labels.*.name, 'automerge')) &&
+      !startsWith(github.event.pull_request.head.ref, 'revert/') &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Check changed paths against the content allowlist
+        id: paths
+        run: |
+          # Both sides of a rename are checked, so a file cannot escape the
+          # allowlist (or sneak into it) by being renamed.
+          gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate \
+            --jq '.[] | [.filename, .previous_filename // empty] | .[]' \
+            > changed.txt
+          echo "changed paths:"
+          cat changed.txt
+          allowed=true
+          blocked=""
+          while IFS= read -r path; do
+            case "$path" in
+              data/menu.json|index.html|app.min.js|styles.min.css|assets/menu/*) ;;
+              *) allowed=false; blocked="$blocked, $path" ;;
+            esac
+          done < changed.txt
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+          echo "blocked=${blocked#, }" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge (GitHub merges after required checks pass)
+        if: steps.paths.outputs.allowed == 'true'
+        run: gh pr merge --auto --squash "$PR_NUMBER" --repo "$REPO"
+
+      - name: Ask the owner to confirm (single comment, never repeated)
+        if: steps.paths.outputs.allowed != 'true'
+        env:
+          BLOCKED: ${{ steps.paths.outputs.blocked }}
+        run: |
+          marker="<!-- automerge: waiting for owner -->"
+          if gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+               --jq '.[].body' | grep -qF "$marker"; then
+            echo "owner-confirmation comment already exists, not repeating it"
+            exit 0
+          fi
+          # The comment itself is Russian: it is addressed to the bar owner.
+          printf '%s\n%s\n' \
+            "$marker" \
+            "Жду подтверждения владельца: изменение выходит за меню ($BLOCKED). Автоматической публикации не будет — такие изменения владелец подтверждает сам." \
+            | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
