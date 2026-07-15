@@ -126,3 +126,13 @@ Never commit secrets, tokens, or personal data — this is a **public** reposito
 - `python3 build.py` exits cleanly (no `BUILD FAILED`).
 - `python3 build.py --check` prints `OK`.
 - The change is what the owner asked for, and you pushed it.
+
+---
+
+## Pull request body (required)
+
+When you open a pull request in this repository, its body MUST:
+
+1. contain the exact line `AGENTSMD-ACK` (proves these instructions were read);
+2. contain a Russian report section titled `## Отчёт` that lists every change
+   as «было → стало» — one line per changed item, prices included.
