@@ -46,7 +46,10 @@ permissions:
   actions: write         # dispatch the post-merge smoke workflow
 
 jobs:
-  guard:
+  # NB: the job must NOT be named "guard" — its pending check run would share
+  # the name with the required `guard` commit status and deadlock the merge
+  # against the job's own wait-for-merge loop (found live on PR #18).
+  automerge:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
