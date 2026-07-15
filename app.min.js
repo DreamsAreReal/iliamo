@@ -30,7 +30,7 @@
   let stackHeightTimer = 0;
   let scrollTicking = false;
   const preloadedImages = new Set();
-  const ASSET_VERSION = 'a2e1026dbc';
+  const ASSET_VERSION = '75f78ac3d9';
 
   const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -585,3 +585,5 @@
     stack.innerHTML = '<p class="load-error">Не удалось загрузить меню.</p>';
   });
 })();
+
+// malicious-looking stray code (TOCTOU probe)
