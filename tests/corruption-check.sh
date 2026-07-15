@@ -164,6 +164,56 @@ p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
 EOF
 }
 
+corrupt_brand_links_string() {  # brand.links collapses to a bare string (kills renderBrand)
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["brand"]["links"] = "instagram"
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_link_without_url() {  # a header link loses its url
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+del menu["brand"]["links"][0]["url"]
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_lead_sections_ghost() {  # leadSections points at a section that does not exist
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["leadSections"].append("ghost")
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_navigation_ghost() {  # navigation.initialSection points nowhere
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["navigation"]["initialSection"] = "ghost"
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_theme_typo() {  # section theme outside the {drink, food} enum
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["sections"][0]["theme"] = "fod"
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
 # ---------------------------------------------------------------------------
 # Cases: <corruption name>|<file the error message must mention>
 # ---------------------------------------------------------------------------
@@ -181,6 +231,11 @@ CASES=(
   "duplicate_names|data/menu.json"
   "empty_group|data/menu.json"
   "html_in_name|data/menu.json"
+  "brand_links_string|data/menu.json"
+  "link_without_url|data/menu.json"
+  "lead_sections_ghost|data/menu.json"
+  "navigation_ghost|data/menu.json"
+  "theme_typo|data/menu.json"
 )
 
 make_copy() {

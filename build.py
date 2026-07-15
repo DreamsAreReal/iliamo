@@ -56,6 +56,13 @@ FALLBACK_RE = re.compile(
 
 VALID_THEMES = {"drink", "food"}
 
+# Glyphs known to app.js (productIcon); an unknown one degrades safely to the
+# default glyph inside app.js, so it only warrants a warning here.
+KNOWN_ICONS = {
+    "beer", "bottle", "cocktail", "coffee", "drink", "food", "lemonade",
+    "salad", "sauce", "shot", "soft", "soup", "tea", "wine", "wrap",
+}
+
 
 class BuildError(Exception):
     """A problem that must stop the build (broken menu, missing photo, ...)."""
@@ -92,8 +99,7 @@ def validate_menu(menu: dict) -> tuple[list[str], list[str]]:
     if errors:
         return errors, warnings
 
-    if not isinstance(menu["brand"], dict):
-        errors.append('"brand" must be an object — restore it from git history')
+    _validate_brand(menu["brand"], errors)
     categories = menu["categories"]
     sections = menu["sections"]
     if not isinstance(categories, list) or not isinstance(sections, list):
@@ -119,9 +125,15 @@ def validate_menu(menu: dict) -> tuple[list[str], list[str]]:
             if not cat.get(field):
                 warnings.append(f'category "{cid}" is missing "{field}"')
         if cat.get("theme") not in VALID_THEMES:
+            errors.append(
+                f'category "{cid}": theme {cat.get("theme")!r} is invalid — '
+                f"use one of {sorted(VALID_THEMES)} (it drives the page colours)"
+            )
+        icon = cat.get("icon")
+        if isinstance(icon, str) and icon and icon not in KNOWN_ICONS:
             warnings.append(
-                f'category "{cid}" has theme "{cat.get("theme")}" '
-                f"(expected one of {sorted(VALID_THEMES)})"
+                f'category "{cid}" icon "{icon}" is not a known glyph '
+                "(the site will show the default glyph instead)"
             )
 
     section_ids: list[str] = []
@@ -141,6 +153,11 @@ def validate_menu(menu: dict) -> tuple[list[str], list[str]]:
         if sid in section_ids:
             errors.append(f'duplicate section id "{sid}" — remove or rename one')
         section_ids.append(sid)
+        if sec.get("theme") not in VALID_THEMES:
+            errors.append(
+                f'section "{sid}": theme {sec.get("theme")!r} is invalid — '
+                f"use one of {sorted(VALID_THEMES)} (it drives the page colours)"
+            )
 
         groups = sec.get("groups", [])
         if not isinstance(groups, list):
@@ -200,7 +217,72 @@ def validate_menu(menu: dict) -> tuple[list[str], list[str]]:
                 "id must also appear in sections (add the section or drop the category)"
             )
 
+    # leadSections and navigation reference sections by id; a ghost id is a
+    # silent no-op in the renderer, which always hides a typo — reject it.
+    lead_sections = menu.get("leadSections", [])
+    if not isinstance(lead_sections, list):
+        errors.append('"leadSections" must be a list of section ids')
+    else:
+        for sid in lead_sections:
+            if not isinstance(sid, str) or sid not in section_ids:
+                errors.append(
+                    f'"leadSections" mentions {sid!r}, but there is no such '
+                    "section — fix the id or remove it"
+                )
+    navigation = menu.get("navigation")
+    if navigation is not None:
+        if not isinstance(navigation, dict):
+            errors.append('"navigation" must be an object')
+        else:
+            initial = navigation.get("initialSection")
+            if initial is not None and (
+                not isinstance(initial, str) or initial not in section_ids
+            ):
+                errors.append(
+                    f'"navigation.initialSection" is {initial!r}, but there is '
+                    "no such section — fix the id or remove it"
+                )
+
     return errors, warnings
+
+
+def _validate_brand(brand: object, errors: list[str]) -> None:
+    """brand.* feeds the header render in app.js; a wrong shape there kills
+    the whole page (links.map on a non-list throws before anything renders)."""
+    if not isinstance(brand, dict):
+        errors.append('"brand" must be an object — restore it from git history')
+        return
+    for field in ("name", "subtitle", "logo", "siteUrl"):
+        value = brand.get(field)
+        if value is not None and not isinstance(value, str):
+            errors.append(f'"brand.{field}" must be a string, got: {value!r}')
+    links = brand.get("links")
+    if links is None:
+        return
+    if not isinstance(links, list):
+        errors.append(
+            f'"brand.links" must be a LIST of link objects, got: {links!r} — '
+            "the site cannot render the header links otherwise"
+        )
+        return
+    for link in links:
+        if not isinstance(link, dict):
+            errors.append(
+                f'every entry of "brand.links" must be an object, got: {link!r}'
+            )
+            continue
+        url = link.get("url")
+        if not url or not isinstance(url, str):
+            errors.append(
+                f'a brand link has no string "url": {link!r} — add the address'
+            )
+        if not isinstance(link.get("icon") or link.get("id"), str):
+            errors.append(
+                f'a brand link needs a string "icon" or "id": {link!r}'
+            )
+        label = link.get("label")
+        if label is not None and not isinstance(label, str):
+            errors.append(f'"label" of a brand link must be a string, got: {label!r}')
 
 
 def _validate_item(
@@ -219,6 +301,18 @@ def _validate_item(
         errors.append(
             f'item name {name!r} in section "{section_id}" contains HTML or '
             "control characters — use plain text only"
+        )
+    for field in ("desc", "icon", "image"):
+        value = item.get(field)
+        if value is not None and not isinstance(value, str):
+            errors.append(f'"{name}": "{field}" must be a string, got: {value!r}')
+    if item.get("lead") is not None and not isinstance(item["lead"], bool):
+        errors.append(f'"{name}": "lead" must be true or false, got: {item["lead"]!r}')
+    icon = item.get("icon")
+    if isinstance(icon, str) and icon and icon not in KNOWN_ICONS:
+        warnings.append(
+            f'"{name}" icon "{icon}" is not a known glyph '
+            "(the site will show the default glyph instead)"
         )
     price = item.get("price")
     if price is not None:
