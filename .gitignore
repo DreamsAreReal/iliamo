@@ -4,6 +4,11 @@
 # Pipeline / internal working notes (not part of the deliverable)
 .pipeline/
 
+# pipeline working files (not part of the site)
+docs/
+.spikes/
+.verify/
+
 # Python
 __pycache__/
 *.pyc
