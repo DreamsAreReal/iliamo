@@ -45,13 +45,13 @@ jobs:
       REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
-      # Needed by the diff guard: PR head files + base commit history.
-      # Safe to run guard code from this checkout: the guard only executes
-      # when every changed path is inside the content allowlist, and
-      # tools/ + .github/ are OUTSIDE it (a PR cannot smuggle a guard edit).
+      # The diff guard runs from the TRUSTED base commit (main): PR content
+      # is read via `git show` as data only, so a PR can never replace the
+      # guard that judges it (it could not anyway — tools/ and .github/ are
+      # outside the allowlist — but trusting base removes the question).
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
 
       - name: Check changed paths against the content allowlist
@@ -80,9 +80,11 @@ jobs:
         if: steps.paths.outputs.allowed == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          git fetch --quiet origin "$HEAD_SHA"
           status=0
-          python3 tools/pr_guard.py --base "$BASE_SHA" > guard.txt || status=$?
+          python3 tools/pr_guard.py --base "$BASE_SHA" --head "$HEAD_SHA" > guard.txt || status=$?
           cat guard.txt
           if [ "$status" -eq 0 ]; then
             echo "clean=true" >> "$GITHUB_OUTPUT"
