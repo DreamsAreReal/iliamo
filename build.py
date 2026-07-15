@@ -256,6 +256,12 @@ def _validate_brand(brand: object, errors: list[str]) -> None:
         value = brand.get(field)
         if value is not None and not isinstance(value, str):
             errors.append(f'"brand.{field}" must be a string, got: {value!r}')
+    logo = brand.get("logo")
+    if isinstance(logo, str) and logo and not (ROOT / logo).exists():
+        errors.append(
+            f'"brand.logo" points at "{logo}" but that file does not exist — '
+            "fix the path or add the file"
+        )
     links = brand.get("links")
     if links is None:
         return
@@ -275,6 +281,11 @@ def _validate_brand(brand: object, errors: list[str]) -> None:
         if not url or not isinstance(url, str):
             errors.append(
                 f'a brand link has no string "url": {link!r} — add the address'
+            )
+        elif not url.startswith(("https://", "http://")):
+            errors.append(
+                f'a brand link url must start with http(s)://, got: "{url}" — '
+                "javascript:/data: and other schemes are not allowed"
             )
         if not isinstance(link.get("icon") or link.get("id"), str):
             errors.append(

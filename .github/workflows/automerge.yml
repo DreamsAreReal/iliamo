@@ -1,105 +1,194 @@
 name: automerge
 
-# Zero-tap delivery (ADR-0001, variant C).
+# Zero-tap delivery, structural revision (ADR-0001 variant C; M2-R2 fixes).
 #
-# Arms GitHub auto-merge (squash) on pull requests coming from the Codex flow
-# when EVERY changed path stays inside the menu-content allowlist. The actual
-# merge is performed by GitHub only after the required "check" status passes,
-# so a red PR can never land — this workflow merely schedules the merge.
+# This workflow is the TRUSTED judge of every pull request. It runs on
+# `pull_request_target`, so GitHub always executes the YAML and the guard
+# code FROM THE BASE BRANCH (main): a pull request cannot replace the guard
+# that judges it, no matter what it puts into .github/** or tools/.
 #
-# Conditions (ALL must hold):
-#   * PR comes from a branch of this repository (forks are never auto-merged);
-#   * branch is codex/* OR the PR carries the "automerge" label;
-#   * branch is NOT revert/* (automated reverts must wait for the owner —
-#     protection against a bad-deploy/revert loop);
-#   * every changed file is one of: data/menu.json, index.html, app.js,
-#     app.min.js, styles.min.css, assets/menu/**. app.js is allowed because
-#     every rebuild bumps the ASSET_VERSION token in it and --check requires
-#     app.js == app.min.js byte for byte, so the pair always changes together
-#     (app.min.js, the file the site actually ships, was allowed from day one).
+# SECURITY INVARIANT for pull_request_target: NEVER check out or execute
+# pull-request content here. The PR side is read as pure data via the API
+# and `git show` (tools/pr_guard.py). Do not add `actions/checkout` with the
+# head ref and do not run scripts taken from the head commit.
 #
-# A PR that touches anything outside the allowlist (code, CI, docs) is NOT
-# merged automatically: the workflow leaves a single Russian comment asking
-# the owner to confirm, and never repeats it on later pushes.
+# The verdict is posted as a commit status with context `guard` on the exact
+# head SHA. `guard` is a REQUIRED status in branch protection, which kills
+# the TOCTOU race: a new commit means a new SHA with no guard status, so
+# GitHub physically cannot merge (even with auto-merge armed) until this
+# workflow re-evaluates the new head. On a blocking verdict the workflow
+# additionally disarms auto-merge and leaves one Russian owner comment.
+#
+# Verdict matrix (context `guard` on the head SHA):
+#   * any PR touching .github/**            -> failure (workflow self-edit;
+#     a PR that fakes its own `check` via a modified build-check.yml gains
+#     nothing: `guard` from the trusted base still blocks the merge);
+#   * auto-merge candidate (same-repo branch codex/* or label `automerge`,
+#     not revert/*, not draft):
+#       - every changed path inside the content allowlist AND generated
+#         files changed only in the generated way -> success + arm
+#         auto-merge + dispatch post-merge smoke;
+#       - anything else -> failure + disarm auto-merge + owner comment;
+#   * every other PR (owner branches, reverts, forks) -> success with a
+#     "manual decision" note: merging those is a human call, protected by
+#     the required `check` and by the absence of armed auto-merge.
 
 on:
-  pull_request:
-    types: [opened, synchronize, labeled, ready_for_review]
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
 
+# The default GITHUB_TOKEN of this repository is read-only; the write scopes
+# below are granted explicitly ONLY to this trusted base-branch workflow.
 permissions:
-  contents: write
-  pull-requests: write
-  actions: write  # to dispatch the post-merge smoke workflow
+  contents: write        # arm auto-merge
+  pull-requests: write   # owner comments, disarm auto-merge
+  statuses: write        # the required `guard` commit status
+  actions: write         # dispatch the post-merge smoke workflow
 
 jobs:
-  automerge:
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      (startsWith(github.event.pull_request.head.ref, 'codex/') ||
-       contains(github.event.pull_request.labels.*.name, 'automerge')) &&
-      !startsWith(github.event.pull_request.head.ref, 'revert/') &&
-      !github.event.pull_request.draft
+  guard:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
     steps:
-      # The diff guard runs from the TRUSTED base commit (main): PR content
-      # is read via `git show` as data only, so a PR can never replace the
-      # guard that judges it (it could not anyway — tools/ and .github/ are
-      # outside the allowlist — but trusting base removes the question).
+      # Trusted code only: the base branch as of the event.
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
 
-      - name: Check changed paths against the content allowlist
-        id: paths
+      - name: Evaluate the PR against the auto-merge policy
+        id: verdict
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'automerge') }}
         run: |
-          # Both sides of a rename are checked, so a file cannot escape the
-          # allowlist (or sneak into it) by being renamed.
+          # The head commit is fetched as DATA for git show; never executed.
+          git fetch --quiet origin "$HEAD_SHA"
+
+          candidate=false
+          if [ "$HEAD_REPO" = "$REPO" ] && [ "$IS_DRAFT" != "true" ] \
+             && { case "$HEAD_REF" in codex/*) true;; *) [ "$HAS_LABEL" = "true" ];; esac; } \
+             && { case "$HEAD_REF" in revert/*) false;; *) true;; esac; }; then
+            candidate=true
+          fi
+
           gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate \
             --jq '.[] | [.filename, .previous_filename // empty] | .[]' \
             > changed.txt
-          echo "changed paths:"
-          cat changed.txt
+          echo "changed paths:"; cat changed.txt
+
+          workflows_touched=false
           allowed=true
           blocked=""
           while IFS= read -r path; do
             case "$path" in
+              .github/*) workflows_touched=true; allowed=false; blocked="$blocked, $path" ;;
               data/menu.json|index.html|app.js|app.min.js|styles.min.css|assets/menu/*) ;;
               *) allowed=false; blocked="$blocked, $path" ;;
             esac
           done < changed.txt
-          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
-          echo "blocked=${blocked#, }" >> "$GITHUB_OUTPUT"
 
-      - name: Diff guard — generated files may change only in the generated way
-        id: guard
-        if: steps.paths.outputs.allowed == 'true'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          git fetch --quiet origin "$HEAD_SHA"
-          status=0
-          python3 tools/pr_guard.py --base "$BASE_SHA" --head "$HEAD_SHA" > guard.txt || status=$?
-          cat guard.txt
-          if [ "$status" -eq 0 ]; then
-            echo "clean=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "clean=false" >> "$GITHUB_OUTPUT"
+          gen_clean=true
+          details=""
+          if [ "$allowed" = "true" ]; then
+            status=0
+            python3 tools/pr_guard.py --base "$BASE_SHA" --head "$HEAD_SHA" > guard.txt || status=$?
+            cat guard.txt
+            if [ "$status" -ne 0 ]; then
+              gen_clean=false
+              details=$(grep '^PR GUARD VIOLATION' guard.txt | sed 's/^PR GUARD VIOLATION: //' | paste -sd ';' - || true)
+            fi
           fi
-          details=$(grep '^PR GUARD VIOLATION' guard.txt | sed 's/^PR GUARD VIOLATION: //' | paste -sd ';' - || true)
-          echo "details=$details" >> "$GITHUB_OUTPUT"
 
-      - name: Enable auto-merge (GitHub merges after required checks pass)
-        if: steps.paths.outputs.allowed == 'true' && steps.guard.outputs.clean == 'true'
+          clean=false
+          [ "$allowed" = "true" ] && [ "$gen_clean" = "true" ] && clean=true
+
+          {
+            echo "candidate=$candidate"
+            echo "clean=$clean"
+            echo "workflows_touched=$workflows_touched"
+            echo "blocked=${blocked#, }"
+            echo "details=$details"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post the required `guard` status on this exact head SHA
+        env:
+          CANDIDATE: ${{ steps.verdict.outputs.candidate }}
+          CLEAN: ${{ steps.verdict.outputs.clean }}
+          WORKFLOWS: ${{ steps.verdict.outputs.workflows_touched }}
+          BLOCKED: ${{ steps.verdict.outputs.blocked }}
+          DETAILS: ${{ steps.verdict.outputs.details }}
+        run: |
+          if [ "$WORKFLOWS" = "true" ]; then
+            state=failure
+            description="workflow files changed — admin review required"
+          elif [ "$CANDIDATE" != "true" ]; then
+            state=success
+            description="not an auto-merge candidate; merging is a human decision"
+          elif [ "$CLEAN" = "true" ]; then
+            state=success
+            description="content-only change, eligible for auto-merge"
+          else
+            state=failure
+            description="outside the auto-merge policy: ${BLOCKED:-$DETAILS}"
+          fi
+          # Commit status descriptions are capped at 140 characters.
+          gh api -X POST "repos/$REPO/statuses/$HEAD_SHA" \
+            -f state="$state" -f context=guard \
+            -f description="$(printf '%s' "$description" | cut -c1-140)"
+          echo "guard=$state ($description)"
+
+      - name: Arm auto-merge (GitHub merges after required checks pass)
+        if: >-
+          steps.verdict.outputs.candidate == 'true' &&
+          steps.verdict.outputs.clean == 'true'
         run: gh pr merge --auto --squash "$PR_NUMBER" --repo "$REPO"
 
+      - name: Disarm auto-merge on a blocking verdict (TOCTOU defence in depth)
+        if: >-
+          steps.verdict.outputs.candidate == 'true' &&
+          steps.verdict.outputs.clean != 'true'
+        run: |
+          gh pr merge --disable-auto "$PR_NUMBER" --repo "$REPO" \
+            && echo "auto-merge disarmed" \
+            || echo "auto-merge was not armed"
+
+      - name: Ask the owner to confirm (single comment, never repeated)
+        if: >-
+          steps.verdict.outputs.candidate == 'true' &&
+          steps.verdict.outputs.clean != 'true'
+        env:
+          BLOCKED: ${{ steps.verdict.outputs.blocked }}
+          DETAILS: ${{ steps.verdict.outputs.details }}
+        run: |
+          marker="<!-- automerge: waiting for owner -->"
+          if gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+               --jq '.[].body' | grep -qF "$marker"; then
+            echo "owner-confirmation comment already exists, not repeating it"
+            exit 0
+          fi
+          if [ -n "$BLOCKED" ]; then
+            reason="изменение выходит за меню ($BLOCKED)"
+          else
+            reason="изменение затрагивает код или каркас сайта, а не только меню ($DETAILS)"
+          fi
+          # The comment itself is Russian: it is addressed to the bar owner.
+          printf '%s\n%s\n' \
+            "$marker" \
+            "Жду подтверждения владельца: $reason. Автоматическая публикация отключена — такие изменения владелец подтверждает сам." \
+            | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
+
       - name: Dispatch the post-deploy smoke once the PR merges
-        if: steps.paths.outputs.allowed == 'true' && steps.guard.outputs.clean == 'true'
+        if: >-
+          steps.verdict.outputs.candidate == 'true' &&
+          steps.verdict.outputs.clean == 'true'
         # A merge push made by GITHUB_TOKEN emits no workflow-triggering
         # events (verified live on PR #12), but workflow_dispatch is the
         # documented exception: it does create runs even from GITHUB_TOKEN.
@@ -123,29 +212,3 @@ jobs:
           done
           gh workflow run smoke.yml --repo "$REPO"
           echo "PR not merged within 10 minutes; smoke dispatched anyway (idempotent)"
-
-      - name: Ask the owner to confirm (single comment, never repeated)
-        if: >-
-          steps.paths.outputs.allowed != 'true' ||
-          steps.guard.outputs.clean == 'false'
-        env:
-          BLOCKED: ${{ steps.paths.outputs.blocked }}
-          ALLOWED: ${{ steps.paths.outputs.allowed }}
-          GUARD_DETAILS: ${{ steps.guard.outputs.details }}
-        run: |
-          marker="<!-- automerge: waiting for owner -->"
-          if gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-               --jq '.[].body' | grep -qF "$marker"; then
-            echo "owner-confirmation comment already exists, not repeating it"
-            exit 0
-          fi
-          # The comment itself is Russian: it is addressed to the bar owner.
-          if [ "$ALLOWED" != "true" ]; then
-            reason="изменение выходит за меню ($BLOCKED)"
-          else
-            reason="изменение затрагивает код или каркас сайта, а не только меню ($GUARD_DETAILS)"
-          fi
-          printf '%s\n%s\n' \
-            "$marker" \
-            "Жду подтверждения владельца: $reason. Автоматической публикации не будет — такие изменения владелец подтверждает сам." \
-            | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -

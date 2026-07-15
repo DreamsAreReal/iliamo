@@ -109,8 +109,15 @@ jobs:
           fi
 
           git push origin "$branch"
+          # GITHUB_TOKEN pushes trigger no workflows, so BOTH required
+          # contexts are injected here: `check` reflects the local
+          # build.py --check result; `guard` is success by construction —
+          # this branch is a pure revert created by the trusted smoke.
           gh api -X POST "repos/$REPO/statuses/$(git rev-parse HEAD)" \
             -f state="$state" -f context=check -f description="$description"
+          gh api -X POST "repos/$REPO/statuses/$(git rev-parse HEAD)" \
+            -f state=success -f context=guard \
+            -f description="revert branch created by the trusted smoke workflow"
 
           # Owner-facing texts are Russian by design.
           {

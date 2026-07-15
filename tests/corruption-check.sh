@@ -204,6 +204,26 @@ p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
 EOF
 }
 
+corrupt_brand_logo_missing() {  # brand.logo points at a file that does not exist
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["brand"]["logo"] = "assets/no-such-logo.webp"
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_link_javascript_url() {  # a header link smuggles a javascript: url
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["brand"]["links"][0]["url"] = "javascript:alert(1)"
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
 corrupt_theme_typo() {  # section theme outside the {drink, food} enum
   python3 - "$1" <<'EOF'
 import json, pathlib, sys
@@ -236,6 +256,8 @@ CASES=(
   "lead_sections_ghost|data/menu.json"
   "navigation_ghost|data/menu.json"
   "theme_typo|data/menu.json"
+  "brand_logo_missing|data/menu.json"
+  "link_javascript_url|data/menu.json"
 )
 
 make_copy() {

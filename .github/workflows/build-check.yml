@@ -8,6 +8,11 @@ on:
   push:
   pull_request:
 
+# Validation only: this workflow needs nothing beyond reading the repo.
+# (The repository default for GITHUB_TOKEN is read-only as well.)
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
