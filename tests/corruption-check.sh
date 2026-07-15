@@ -102,6 +102,10 @@ corrupt_stale_app_min() {  # app.min.js drifts away from app.js
   printf '\n// stray manual edit\n' >> "$1/app.min.js"
 }
 
+corrupt_manual_index_edit() {  # index.html edited outside the generated block, no rebuild
+  printf '<!-- stray manual edit -->\n' >> "$1/index.html"
+}
+
 corrupt_stale_styles_min() {  # styles.css edited, styles.min.css not re-minified
   python3 - "$1" <<'EOF'
 import pathlib, sys
@@ -172,6 +176,7 @@ CASES=(
   "stale_index|index.html"
   "stale_app_min|app.min.js"
   "stale_styles_min|styles.min.css"
+  "manual_index_edit|index.html"
   "price_out_of_range|data/menu.json"
   "duplicate_names|data/menu.json"
   "empty_group|data/menu.json"

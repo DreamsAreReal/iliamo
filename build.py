@@ -260,11 +260,17 @@ def inline_json(menu: dict) -> str:
 def new_version() -> str:
     """Content hash of the shipped assets: same input -> same version.
 
-    The version token itself lives inside app.js / app.min.js, so hashing the
-    file literally would make the version depend on itself and never converge.
-    Instead the token is normalised to a placeholder before hashing; app.min.js
-    is a byte copy of app.js after the build, so hashing normalised app.js is
-    equivalent to hashing the normalised shipped file (spike S2 / ADR-0002).
+    The version token itself lives inside the hashed files, so hashing them
+    literally would make the version depend on itself and never converge.
+    Instead the token (and the generated menu block in index.html) is
+    normalised to a placeholder before hashing; app.min.js is a byte copy of
+    app.js after the build, so hashing normalised app.js is equivalent to
+    hashing the normalised shipped file (spike S2 / ADR-0002).
+
+    The index.html scaffold (everything outside the generated menu block) is
+    part of the hash on purpose: a manual edit of index.html that is not
+    followed by `python3 build.py` makes ASSET_VERSION stale, which --check
+    reports as an error (M1-R1 finding).
     """
     hasher = hashlib.sha256()
     hasher.update(MENU_JSON.read_bytes())
@@ -272,6 +278,12 @@ def new_version() -> str:
     js_text = APP_JS.read_text(encoding="utf-8")
     js_normalised = VERSION_RE.sub("const ASSET_VERSION = 'X'", js_text)
     hasher.update(js_normalised.encode("utf-8"))
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    token = VERSION_RE.search(html_text)
+    if token:
+        html_text = html_text.replace(token.group(1), "X")
+    html_scaffold = FALLBACK_RE.sub(r"\1X\3", html_text, count=1)
+    hasher.update(html_scaffold.encode("utf-8"))
     return hasher.hexdigest()[:10]
 
 
