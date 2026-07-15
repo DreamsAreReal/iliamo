@@ -1,5 +1,6 @@
 # Iliamo Menu
 
+
 Static single-page menu for **Iliamo Kitchen & Bar**, published at
 https://www.iliamo.bar via Cloudflare Pages. No backend, no framework — plain HTML,
 CSS and JavaScript.
