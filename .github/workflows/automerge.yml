@@ -12,8 +12,11 @@ name: automerge
 #   * branch is codex/* OR the PR carries the "automerge" label;
 #   * branch is NOT revert/* (automated reverts must wait for the owner —
 #     protection against a bad-deploy/revert loop);
-#   * every changed file is one of: data/menu.json, index.html, app.min.js,
-#     styles.min.css, assets/menu/**.
+#   * every changed file is one of: data/menu.json, index.html, app.js,
+#     app.min.js, styles.min.css, assets/menu/**. app.js is allowed because
+#     every rebuild bumps the ASSET_VERSION token in it and --check requires
+#     app.js == app.min.js byte for byte, so the pair always changes together
+#     (app.min.js, the file the site actually ships, was allowed from day one).
 #
 # A PR that touches anything outside the allowlist (code, CI, docs) is NOT
 # merged automatically: the workflow leaves a single Russian comment asking
@@ -55,7 +58,7 @@ jobs:
           blocked=""
           while IFS= read -r path; do
             case "$path" in
-              data/menu.json|index.html|app.min.js|styles.min.css|assets/menu/*) ;;
+              data/menu.json|index.html|app.js|app.min.js|styles.min.css|assets/menu/*) ;;
               *) allowed=false; blocked="$blocked, $path" ;;
             esac
           done < changed.txt
