@@ -156,7 +156,19 @@ jobs:
         if: >-
           steps.verdict.outputs.candidate == 'true' &&
           steps.verdict.outputs.clean == 'true'
-        run: gh pr merge --auto --squash "$PR_NUMBER" --repo "$REPO"
+        # enablePullRequestAutoMerge refuses when the PR is ALREADY mergeable
+        # ("clean/unstable status" GraphQL error): the required checks can
+        # finish before this step runs (race observed live on PR #21, where
+        # the 6-second build-check beat the arming step). Branch protection
+        # still guards the direct merge, so the fallback only succeeds in
+        # exactly that already-green state.
+        run: |
+          if gh pr merge --auto --squash "$PR_NUMBER" --repo "$REPO"; then
+            echo "auto-merge armed"
+          else
+            echo "auto-merge refused — PR is likely already mergeable, merging directly"
+            gh pr merge --squash "$PR_NUMBER" --repo "$REPO"
+          fi
 
       - name: Disarm auto-merge on a blocking verdict (TOCTOU defence in depth)
         if: >-
