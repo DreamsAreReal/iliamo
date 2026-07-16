@@ -67,13 +67,14 @@ Optional local preview: `python3 server.py` serves http://localhost:8000/ .
 
 ## Russian report template (PR body AND final answer)
 
-Use exactly this structure; one bullet per changed item, category in brackets:
+Use exactly this structure; one bullet per changed item. The category in
+brackets is the section's `title` from `data/menu.json`, verbatim (not `label`):
 
 ```
 ## Отчёт
 
 ✅ **Что поменялось**
-- Латте (Напитки): было 10 ₾ → стало 11 ₾
+- Латте (КОФЕ): было 10 ₾ → стало 11 ₾
 
 👀 **Посмотреть заранее**
 Превью на https://codex-latte-11.aspen-bar.pages.dev
@@ -88,14 +89,16 @@ Use exactly this structure; one bullet per changed item, category in brackets:
 Canonical bullets for every kind of change (keep the pattern exactly):
 
 ```
-- Латте (Напитки): было 10 ₾ → стало 11 ₾      (price change)
-- Начос (Закуски): — → 12 ₾                    (new item)
-- Bloody Mary (Коктейли): 14 ₾ → убрано        (removed item)
-- Латте (Напитки): фото — → добавлено          (photo attached, nothing else)
+- Латте (КОФЕ): было 10 ₾ → стало 11 ₾         (price change)
+- Начос (ЗАКУСКИ): — → 12 ₾                    (new item)
+- Bloody Mary (КОКТЕЙЛИ): 14 ₾ → убрано        (removed item)
+- Латте (КОФЕ): фото — → добавлено             (photo attached, nothing else)
 ```
 
-Every changed item MUST appear as a bullet — the report is checked against the
-actual diff. Do not promise anything beyond this template (no speed guarantees).
+Every changed item MUST appear as a bullet with its REAL prices copied from
+the diff: the check verifies the item names AND both price values (old and
+new) against the actual change — a misremembered number blocks the merge.
+Do not promise anything beyond this template (no speed guarantees).
 
 ## Owner phrases -> what to do
 

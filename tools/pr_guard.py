@@ -94,11 +94,19 @@ def main() -> int:
 
     if args.body_file is not None:
         body = Path(args.body_file).read_text(encoding="utf-8")
-        for name in sorted(changed_item_names(args.base, args.head)):
+        for name, old_price, new_price in changed_item_records(args.base, args.head):
             if name not in body:
                 violations.append(
                     f'report does not mention the changed item "{name}"'
                 )
+            if old_price == new_price:
+                continue  # price untouched (desc/photo edit): nothing to verify
+            for price, kind in ((old_price, "old"), (new_price, "new")):
+                if price is not None and not price_mentioned(price, body):
+                    violations.append(
+                        f'report does not mention the {kind} price "{price}" '
+                        f'of "{name}"'
+                    )
 
     if violations:
         for violation in violations:
@@ -108,8 +116,8 @@ def main() -> int:
     return 0
 
 
-def item_index(commit: str) -> dict[tuple[str, str, str], str] | None:
-    """Map (section id, group title, item name) -> canonical item JSON."""
+def item_index(commit: str) -> dict[tuple[str, str, str], dict] | None:
+    """Map (section id, group title, item name) -> the item object."""
     raw = at_commit(commit, "data/menu.json")
     if raw is None:
         return None
@@ -117,7 +125,7 @@ def item_index(commit: str) -> dict[tuple[str, str, str], str] | None:
         menu = json.loads(raw)
     except json.JSONDecodeError:
         return None
-    index: dict[tuple[str, str, str], str] = {}
+    index: dict[tuple[str, str, str], dict] = {}
     for section in menu.get("sections", []):
         if not isinstance(section, dict):
             continue
@@ -131,24 +139,46 @@ def item_index(commit: str) -> dict[tuple[str, str, str], str] | None:
                         str(group.get("title")),
                         item["name"],
                     )
-                    index[key] = json.dumps(item, ensure_ascii=False, sort_keys=True)
+                    index[key] = item
     return index
 
 
-def changed_item_names(base: str, head: str) -> set[str]:
-    """Names of menu items added, removed or modified between two commits.
+def changed_item_records(
+    base: str, head: str
+) -> list[tuple[str, str | None, str | None]]:
+    """(name, old price, new price) for every item added, removed or modified.
 
-    The report==diff rule (G8): every one of these names must appear in the
-    PR body, otherwise the owner cannot see what actually changed.
+    The report==diff rule (G8): every changed item name must appear in the PR
+    body, and when the price changed, BOTH real price values must appear too —
+    otherwise the owner cannot tell an accurate report from a hallucinated one
+    (a fabricated old price passed the name-only check, found in review M3-R1).
     """
     base_items, head_items = item_index(base), item_index(head)
     if base_items is None or head_items is None:
-        return set()  # unparseable side: build-check rejects the PR anyway
-    changed: set[str] = set()
-    for key in base_items.keys() | head_items.keys():
-        if base_items.get(key) != head_items.get(key):
-            changed.add(key[2])
-    return changed
+        return []  # unparseable side: build-check rejects the PR anyway
+    records: list[tuple[str, str | None, str | None]] = []
+    for key in sorted(base_items.keys() | head_items.keys()):
+        old_item, new_item = base_items.get(key), head_items.get(key)
+        old_canon = json.dumps(old_item, ensure_ascii=False, sort_keys=True)
+        new_canon = json.dumps(new_item, ensure_ascii=False, sort_keys=True)
+        if old_canon != new_canon:
+            records.append(
+                (
+                    key[2],
+                    old_item.get("price") if old_item else None,
+                    new_item.get("price") if new_item else None,
+                )
+            )
+    return records
+
+
+def price_mentioned(price: str, body: str) -> bool:
+    """True when the price occurs in the body as a standalone value.
+
+    A plain substring check would accept "9 ₾" inside "19 ₾"; requiring a
+    non-digit before the match keeps the numbers honest.
+    """
+    return re.search(rf"(?<!\d){re.escape(price)}", body) is not None
 
 
 if __name__ == "__main__":
