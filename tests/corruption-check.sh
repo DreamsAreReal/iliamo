@@ -234,6 +234,67 @@ p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
 EOF
 }
 
+corrupt_name_too_long() {  # a 10 000-char name that breaks the card
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["sections"][0]["groups"][0]["items"][0]["name"] = "X" * 10000
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_desc_too_long() {  # an overlong description
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["sections"][0]["groups"][0]["items"][0]["desc"] = "y" * 600
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_price_arabic_digits() {  # non-ASCII (Arabic-Indic) digits in a price
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["sections"][0]["groups"][0]["items"][0]["price"] = "١٠ ₾"  # "10 lari"
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_price_fullwidth_digits() {  # full-width digits in a price
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["sections"][0]["groups"][0]["items"][0]["price"] = "１０ ₾"  # "10 lari"
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_zero_width_in_name() {  # zero-width space smuggled into a name
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+item = menu["sections"][0]["groups"][0]["items"][0]
+item["name"] = item["name"][:2] + "​" + item["name"][2:]
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
+corrupt_bidi_override_in_desc() {  # RTL override that hides text obfuscation
+  python3 - "$1" <<'EOF'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1]) / "data" / "menu.json"
+menu = json.loads(p.read_text(encoding="utf-8"))
+menu["sections"][0]["groups"][0]["items"][0]["desc"] = "safe‮vert"
+p.write_text(json.dumps(menu, ensure_ascii=False, indent=2), encoding="utf-8")
+EOF
+}
+
 # ---------------------------------------------------------------------------
 # Cases: <corruption name>|<file the error message must mention>
 # ---------------------------------------------------------------------------
@@ -258,6 +319,12 @@ CASES=(
   "theme_typo|data/menu.json"
   "brand_logo_missing|data/menu.json"
   "link_javascript_url|data/menu.json"
+  "name_too_long|data/menu.json"
+  "desc_too_long|data/menu.json"
+  "price_arabic_digits|data/menu.json"
+  "price_fullwidth_digits|data/menu.json"
+  "zero_width_in_name|data/menu.json"
+  "bidi_override_in_desc|data/menu.json"
 )
 
 make_copy() {

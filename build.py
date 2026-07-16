@@ -38,13 +38,45 @@ STYLES_MIN_CSS = ROOT / "styles.min.css"
 ASSETS_MENU = ROOT / "assets" / "menu"
 
 # Prices are strictly "<integer> ₾" (e.g. "11 ₾") so reports and lints can
-# always parse them.
-PRICE_RE = re.compile(r"^(\d+) ₾$")
+# always parse them. ASCII digits only: \d also matches Arabic-Indic (١٠) and
+# full-width (１０) digits, which int() would happily read but a guest cannot
+# (found in review E3) — reject them here.
+PRICE_RE = re.compile(r"^([0-9]+) ₾$")
 
 # Sane price corridor for this menu (data today: 6–34 ₾, kept with a 3x margin).
 # A price outside it is most likely a typo ("110" instead of "11"); the owner
 # confirms an intentional one via `"priceConfirmed": "<price>"` on the item.
 PRICE_MIN, PRICE_MAX = 1, 100
+
+# Sane text-length caps (data today: item name max 31, desc max 141) kept with
+# a wide margin. A 10 000-char name breaks the card layout (found in review E3).
+NAME_MAX_LEN, DESC_MAX_LEN = 80, 500
+
+# Invisible / bidirectional-control characters that render as garbage or hide
+# text obfuscation: zero-width (U+200B..U+200D, U+FEFF), LTR/RTL embeddings and
+# overrides (U+202A..U+202E), and isolates (U+2066..U+2069). Plus any C0/C1
+# control except ordinary whitespace. Names and descriptions must be plain text.
+_INVISIBLE = (
+    {"\u200b", "\u200c", "\u200d", "\ufeff"}
+    | {chr(c) for c in range(0x202A, 0x202F)}
+    | {chr(c) for c in range(0x2066, 0x206A)}
+)
+
+
+def _bad_text_chars(text: str) -> bool:
+    """True if the text carries HTML angle brackets, control chars (other than
+    tab/newline) or invisible/bidi-control characters."""
+    for ch in text:
+        if ch in "<>":
+            return True
+        if ch in _INVISIBLE:
+            return True
+        code = ord(ch)
+        if code < 32 and ch not in "\t\n\r":
+            return True
+        if 0x7F <= code <= 0x9F:  # C1 controls
+            return True
+    return False
 
 # Files that carry the cache-busting token and must be bumped together.
 VERSION_FILES = [INDEX_HTML, APP_JS, APP_MIN_JS]
@@ -308,15 +340,32 @@ def _validate_item(
             f'an item in section "{section_id}" has no name: {item!r} — add "name"'
         )
         return
-    if any(ord(ch) < 32 for ch in name) or "<" in name or ">" in name:
+    if _bad_text_chars(name):
         errors.append(
-            f'item name {name!r} in section "{section_id}" contains HTML or '
-            "control characters — use plain text only"
+            f'item name {name!r} in section "{section_id}" contains HTML, '
+            "control or invisible/bidirectional characters — use plain text only"
+        )
+    if len(name) > NAME_MAX_LEN:
+        errors.append(
+            f'item name in section "{section_id}" is {len(name)} characters — '
+            f"keep it under {NAME_MAX_LEN} (a very long name breaks the card)"
         )
     for field in ("desc", "icon", "image"):
         value = item.get(field)
         if value is not None and not isinstance(value, str):
             errors.append(f'"{name}": "{field}" must be a string, got: {value!r}')
+    desc = item.get("desc")
+    if isinstance(desc, str):
+        if _bad_text_chars(desc):
+            errors.append(
+                f'"{name}": description contains HTML, control or invisible/'
+                "bidirectional characters — use plain text only"
+            )
+        if len(desc) > DESC_MAX_LEN:
+            errors.append(
+                f'"{name}": description is {len(desc)} characters — keep it '
+                f"under {DESC_MAX_LEN}"
+            )
     if item.get("lead") is not None and not isinstance(item["lead"], bool):
         errors.append(f'"{name}": "lead" must be true or false, got: {item["lead"]!r}')
     icon = item.get("icon")
