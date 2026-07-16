@@ -91,9 +91,19 @@ jobs:
           allowed=true
           blocked=""
           while IFS= read -r path; do
+            # Only image files may land in assets/menu/ automatically: an
+            # arbitrary type there (e.g. evil.html) would deploy to prod in
+            # zero taps, bypassing every gate (S1). The extension is matched
+            # case-insensitively via a lower-cased copy of the path.
+            lower=$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')
             case "$path" in
               .github/*) workflows_touched=true; allowed=false; blocked="$blocked, $path" ;;
-              data/menu.json|index.html|app.js|app.min.js|styles.min.css|assets/menu/*) ;;
+              data/menu.json|index.html|app.js|app.min.js|styles.min.css) ;;
+              assets/menu/*)
+                case "$lower" in
+                  assets/menu/*.webp|assets/menu/*.jpg|assets/menu/*.jpeg|assets/menu/*.png|assets/menu/*.gif|assets/menu/*.avif) ;;
+                  *) allowed=false; blocked="$blocked, $path" ;;
+                esac ;;
               *) allowed=false; blocked="$blocked, $path" ;;
             esac
           done < changed.txt

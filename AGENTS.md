@@ -76,22 +76,30 @@ brackets is the section's `title` from `data/menu.json`, verbatim (not `label`):
 ✅ **Что поменялось**
 - Латте (КОФЕ): было 10 ₾ → стало 11 ₾
 
-👀 **Посмотреть заранее**
-Превью на https://codex-latte-11.aspen-bar.pages.dev
-
 ⏱ **Когда на сайте**
-~3 минуты после проверок
+Публикую сейчас, на сайте через пару минут
 
 ↩️ **Если не понравилось**
 Напишите: верни как было
 ```
+
+If — and only if — the owner asked NOT to publish yet ("покажи, но пока не
+публикуй"), replace the "Когда на сайте" block with a preview link instead:
+
+```
+👀 **Посмотреть заранее**
+Пока не публикую. Превью: https://codex-latte-11.aspen-bar.pages.dev
+```
+
+Do not offer the preview link on a normal request: auto-merge (13–60 s) beats
+the preview build (~1 min), so "посмотреть заранее" would already be live.
 
 Canonical bullets for every kind of change (keep the pattern exactly):
 
 ```
 - Латте (КОФЕ): было 10 ₾ → стало 11 ₾         (price change)
 - Начос (ЗАКУСКИ): — → 12 ₾                    (new item)
-- Bloody Mary (КОКТЕЙЛИ): 14 ₾ → убрано        (removed item)
+- Bloody Mary (КОКТЕЙЛИ): 17 ₾ → убрано        (removed item)
 - Латте (КОФЕ): фото — → добавлено             (photo attached, nothing else)
 ```
 
@@ -112,6 +120,7 @@ Do not promise anything beyond this template (no speed guarantees).
 | «поставь фото …» (file already sent) | set `"image": "assets/menu/<file>"` (see Photos) |
 | «поменяй ссылку на инстаграм»        | edit `brand.links[]` (http(s) urls only) |
 | «верни как было»                     | revert the change in `data/menu.json`, rebuild, new PR |
+| «обнови ветку и сделай заново»       | merge `main` into your branch, rerun `python3 build.py`, push |
 | «что со статусом?»                   | see "Status questions" below |
 
 ## `data/menu.json` structure
