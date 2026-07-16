@@ -86,6 +86,12 @@ jobs:
           head=$(git rev-parse origin/main)
 
           if [ -n "$SIMULATED" ]; then
+            # Validate the input BEFORE any side effect (a mistyped sha must
+            # not close a valid open revert PR and then die mid-flight).
+            if ! git rev-parse --verify --quiet "$SIMULATED^{commit}" > /dev/null; then
+              echo "TEST MODE: '$SIMULATED' is not a commit in this repository"
+              exit 1
+            fi
             echo "TEST MODE: simulating a red build-check on $SIMULATED"
             echo "verdict=red" >> "$GITHUB_OUTPUT"
             echo "sha=$SIMULATED" >> "$GITHUB_OUTPUT"
