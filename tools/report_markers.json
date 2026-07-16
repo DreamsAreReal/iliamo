@@ -2,5 +2,6 @@
   "_comment": "Russian report vocabulary (product language is RU). Data, not code. Must stay byte-identical to the status-panel template in AGENTS.md and the owner guide. was=marker before old value, now=marker before new value, arrow=separator.",
   "was": "было",
   "now": "стало",
-  "arrow": "→"
+  "arrow": "→",
+  "currency": "₾"
 }

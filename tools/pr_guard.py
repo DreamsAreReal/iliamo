@@ -94,27 +94,33 @@ def main() -> int:
 
     if args.body_file is not None:
         body = Path(args.body_file).read_text(encoding="utf-8")
-        for name, old_price, new_price in changed_item_records(args.base, args.head):
+        records = changed_item_records(args.base, args.head)
+
+        # Every changed item name must be mentioned at all.
+        for name, old_price, new_price in records:
             if name not in body:
                 violations.append(
                     f'report does not mention the changed item "{name}"'
                 )
-                continue
+
+        # W2-F1: the price changes must be reported TRUTHFULLY. It is not enough
+        # that the real values appear somewhere — no CONFLICTING price may sit
+        # next to the item either (evaluator bypass R1/R2/R3: a fabricated value
+        # beside the honest one used to pass). Records that share a name (two
+        # items with the same name in different groups) are checked together:
+        # each real price change needs its own report line, and no report line
+        # for that name may carry a price outside the real values.
+        by_name: dict[str, list[tuple[str | None, str | None]]] = {}
+        for name, old_price, new_price in records:
             if old_price == new_price:
                 continue  # price untouched (desc/photo edit): nothing to verify
-
-            # W2-F1: the price change must be reported SEMANTICALLY, not just
-            # mentioned. Find the report line(s) that name this item and check
-            # that one of them states the REAL old and new values with the
-            # was/now markers. A fabricated old value is a violation even if
-            # the real one appears somewhere else in the body.
-            lines = [ln for ln in body.splitlines() if name in ln]
-            if reports_price_change(lines, old_price, new_price):
-                continue
-            violations.append(
-                f'report does not state the real price change of "{name}"'
-                + describe_expected(old_price, new_price)
+            by_name.setdefault(name, []).append(
+                (normalise_price(old_price), normalise_price(new_price))
             )
+        for name, changes in by_name.items():
+            if name not in body:
+                continue  # already reported as a missing-name violation above
+            violations.extend(price_report_problems(body, name, changes))
 
     if violations:
         for violation in violations:
@@ -157,9 +163,9 @@ def changed_item_records(
     """(name, old price, new price) for every item added, removed or modified.
 
     The report==diff rule (G8): every changed item name must appear in the PR
-    body, and when the price changed, BOTH real price values must appear too —
+    body, and when the price changed, the report must state the real values —
     otherwise the owner cannot tell an accurate report from a hallucinated one
-    (a fabricated old price passed the name-only check, found in review M3-R1).
+    (a fabricated price passed weaker checks, found in reviews M3-R1 / W2-F1).
     """
     base_items, head_items = item_index(base), item_index(head)
     if base_items is None or head_items is None:
@@ -181,93 +187,129 @@ def changed_item_records(
 
 
 def normalise_price(price: str | None) -> str | None:
-    """Canonical `N ₾` form: collapse any run of whitespace (incl. the Unicode
+    """Canonical price form: collapse any run of whitespace (incl. the Unicode
     no-break space U+00A0 and narrow no-break U+202F) to one ASCII space.
 
-    build.py --check already rejects prices that are not `N ₾`, so a changed
-    price here is well-formed; this only neutralises spacing variants so the
-    body may be written with a plain or a no-break space.
+    build.py --check already rejects prices not in the `N <currency>` format,
+    so a changed price here is well-formed; this only neutralises spacing
+    variants so the body may use a plain or a no-break space.
     """
     if price is None:
         return None
-    return re.sub(r"\s+", " ", price.replace("\u00a0", " ").replace("\u202f", " ")).strip()
-
-
-def price_in_line(price: str, line: str) -> bool:
-    """True when the (normalised) price occurs in the line as a standalone
-    value — a lookbehind stops `9 ₾` matching inside `19 ₾`."""
-    norm_price = normalise_price(price)
-    norm_line = re.sub(r"[\u00a0\u202f]", " ", line)
-    return re.search(rf"(?<!\d){re.escape(norm_price)}", norm_line) is not None
+    collapsed = price.replace(" ", " ").replace(" ", " ")
+    return re.sub(r"\s+", " ", collapsed).strip()
 
 
 # Report vocabulary lives in a JSON data resource, not in code, because the
-# product language is Russian and the guard must match the exact words of the
-# status-panel report the owner reads. WAS marks the previous value, NOW the
-# resulting value, ARROW separates them in the bullet.
+# product language is Russian and the guard must match the exact words and the
+# currency sign of the status-panel report the owner reads. WAS marks the
+# previous value, NOW the resulting value, ARROW separates them, CURRENCY is
+# the lari sign that terminates every price token.
 _MARKERS = json.loads(
     (ROOT / "tools" / "report_markers.json").read_text(encoding="utf-8")
 )
 WAS: str = _MARKERS["was"]
 NOW: str = _MARKERS["now"]
 ARROW: str = _MARKERS["arrow"]
+CURRENCY: str = _MARKERS["currency"]
+
+PRICE_TOKEN_RE = re.compile(rf"(?<!\d)(\d+)\s*{re.escape(CURRENCY)}")
 
 
-def reports_price_change(
-    lines: list[str], old_price: str | None, new_price: str | None
-) -> bool:
-    """True when one report line for this item states the real change.
+def _norm(text: str) -> str:
+    return re.sub(r"[  ]", " ", text)
 
-    - both prices present (a real change): the line must carry the real old
-      value after the WAS marker and the real new value after the NOW marker,
-      in that order;
-    - added item (no old price): the line must carry the real new value;
-    - removed item (no new price): the line must carry the real old value.
+
+def price_tokens(text: str) -> list[str]:
+    """Every standalone `<number> <currency>` price, in order of appearance.
+
+    A lookbehind stops a shorter number matching inside a longer one (the tail
+    of 19 is not read as 9)."""
+    return [f"{m.group(1)} {CURRENCY}" for m in PRICE_TOKEN_RE.finditer(_norm(text))]
+
+
+def item_price_lines(body: str, name: str) -> list[str]:
+    """Report lines that name the item AND carry at least one price token.
+
+    HTML comments are dropped first: the truth must be VISIBLE to the owner, so
+    a real value hidden in a comment does not excuse a lie in the visible line
+    (evaluator cross-bypass)."""
+    visible = re.sub(r"<!--.*?-->", "", body, flags=re.S)
+    return [
+        ln for ln in visible.splitlines()
+        if name in ln and PRICE_TOKEN_RE.search(_norm(ln))
+    ]
+
+
+def _line_matches_change(line: str, old_n: str | None, new_n: str | None) -> bool:
+    """The line reports exactly this one change, truthfully and in order.
+
+    Its price tokens must be exactly {old, new} for a change (old before new),
+    just [new] for an addition, or just [old] for a removal — no extra price.
     """
-    for line in lines:
-        if old_price is not None and new_price is not None:
-            if not (price_in_line(old_price, line) and price_in_line(new_price, line)):
-                continue
-            # Order guard: the old value must read as the previous one and the
-            # new as the result, so a swapped bullet cannot pass off a rise as
-            # a cut.
-            if _ordered_change(line, old_price, new_price):
-                return True
-        elif new_price is not None:  # addition
-            if price_in_line(new_price, line):
-                return True
-        elif old_price is not None:  # removal
-            if price_in_line(old_price, line):
-                return True
+    tokens = price_tokens(line)
+    if old_n is not None and new_n is not None:
+        if old_n == new_n or sorted(tokens) != sorted([old_n, new_n]):
+            return False
+        norm = _norm(line)
+        return norm.find(old_n) < norm.find(new_n)
+    if new_n is not None:  # addition
+        return tokens == [new_n]
+    if old_n is not None:  # removal
+        return tokens == [old_n]
     return False
 
 
-def _ordered_change(line: str, old_price: str, new_price: str) -> bool:
-    """The old price is stated as the previous value and the new as the result.
+def price_report_problems(
+    body: str,
+    name: str,
+    changes: list[tuple[str | None, str | None]],
+) -> list[str]:
+    """Violations for every price change of items sharing this name.
 
-    Accepts the canonical WAS <old> ARROW NOW <new> bullet and the tolerant
-    <old> ARROW <new> (old before the arrow, new after it)."""
-    norm = re.sub(r"[\u00a0\u202f]", " ", line)
-    old_n, new_n = normalise_price(old_price), normalise_price(new_price)
+    Conjunctive truthfulness (evaluator R1/R2/R3): each real change needs its
+    own report line whose price tokens are EXACTLY its real values in the right
+    order; and NO price line for this name may carry a value outside the real
+    set — a fabricated 15/20, a hallucinated chain, or a "still 20" aside.
+    """
+    problems: list[str] = []
+    real_values = {v for old, new in changes for v in (old, new) if v is not None}
+    lines = item_price_lines(body, name)
 
-    was_m = re.search(rf"{re.escape(WAS)}\s+{re.escape(old_n)}", norm)
-    now_m = re.search(rf"{re.escape(NOW)}\s+{re.escape(new_n)}", norm)
-    if was_m and now_m and was_m.start() < now_m.start():
-        return True
+    # (1) No line for this name may show a price outside the real values.
+    if any(tok not in real_values for line in lines for tok in price_tokens(line)):
+        problems.append(
+            f'report shows a price that is not a real value of "{name}"'
+        )
 
-    arrow = norm.find(ARROW)
-    if arrow == -1:
-        return False
-    before, after = norm[:arrow], norm[arrow:]
-    old_before = re.search(rf"(?<!\d){re.escape(old_n)}", before) is not None
-    new_after = re.search(rf"(?<!\d){re.escape(new_n)}", after) is not None
-    return old_before and new_after
+    # (2) Each real change must be reported on exactly one dedicated line.
+    used: set[int] = set()
+    for old_n, new_n in changes:
+        matched = next(
+            (i for i, line in enumerate(lines)
+             if i not in used and _line_matches_change(line, old_n, new_n)),
+            None,
+        )
+        if matched is None:
+            problems.append(
+                f'report does not truthfully state the price change of "{name}"'
+                + describe_expected(old_n, new_n)
+            )
+        else:
+            used.add(matched)
+
+    # (3) No leftover price line for this name beyond the real changes
+    # (a duplicate/conflicting bullet the checks above did not consume).
+    if len(lines) > len(changes):
+        problems.append(f'report has an extra price line for "{name}"')
+
+    return problems
 
 
 def describe_expected(old_price: str | None, new_price: str | None) -> str:
     old_n, new_n = normalise_price(old_price), normalise_price(new_price)
     if old_n is not None and new_n is not None:
-        return f" (expected {_MARKERS['was']} {old_n} {_MARKERS['arrow']} {_MARKERS['now']} {new_n})"
+        return f" (expected {WAS} {old_n} {ARROW} {NOW} {new_n})"
     if new_n is not None:
         return f" (expected the new price {new_n})"
     if old_n is not None:
