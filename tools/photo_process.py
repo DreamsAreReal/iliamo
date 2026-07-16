@@ -140,14 +140,27 @@ def main() -> int:
         print("nothing to process")
         return 0
 
+    # Process per file: one unreadable / non-image file must not abort the run
+    # and strand valid photos beside it. A skipped file stays in the tree as-is
+    # (build.py --check still governs whether a referenced image is valid).
+    done = 0
+    skipped: list[str] = []
     for path in targets:
         old_rel = rel(path)
-        webp = process_one(path)
+        try:
+            webp = process_one(path)
+        except Exception as exc:  # noqa: BLE001 - report and continue
+            skipped.append(old_rel)
+            print(f"WARNING: skipped {old_rel} \u2014 not a usable image ({exc})")
+            continue
         new_rel = rel(webp)
         changed_ref = rewrite_menu_reference(old_rel, new_rel)
         note = " (menu.json reference updated)" if changed_ref else ""
         print(f"processed: {old_rel} -> {new_rel}{note}")
-    print(f"processed {len(targets)} photo(s); HEIC support: {HEIC}")
+        done += 1
+
+    print(f"processed {done} photo(s), skipped {len(skipped)}; HEIC support: {HEIC}")
+    # Success as long as we did not crash: skipped files are reported, not fatal.
     return 0
 
 

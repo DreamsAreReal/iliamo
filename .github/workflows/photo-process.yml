@@ -61,19 +61,22 @@ jobs:
             before=HEAD~1
           fi
           git diff --name-only --diff-filter=ACMR "$before" HEAD -- 'assets/menu/**' \
-            > changed.txt || true
-          echo "changed photo paths:"; cat changed.txt
+            > "$RUNNER_TEMP/changed.txt" || true
+          echo "changed photo paths:"; cat "$RUNNER_TEMP/changed.txt"
           # Keep only files that still exist (a delete leaves no file).
-          : > targets.txt
+          : > "$RUNNER_TEMP/targets.txt"
           while IFS= read -r p; do
-            [ -n "$p" ] && [ -f "$p" ] && echo "$p" >> targets.txt
-          done < changed.txt
-          if [ ! -s targets.txt ]; then
+            [ -n "$p" ] && [ -f "$p" ] && printf '%s\n' "$p" >> "$RUNNER_TEMP/targets.txt"
+          done < "$RUNNER_TEMP/changed.txt"
+          if [ ! -s "$RUNNER_TEMP/targets.txt" ]; then
             echo "no photo files to process"
             echo "did_work=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          python3 tools/photo_process.py $(tr '\n' ' ' < targets.txt)
+          # photo_process is per-file resilient (B2): a broken image is
+          # skipped with a warning, valid photos beside it still convert.
+          mapfile -t files < "$RUNNER_TEMP/targets.txt"
+          python3 tools/photo_process.py "${files[@]}"
           # Keep index.html / app.min.js consistent if a menu.json ref changed.
           python3 build.py
           if [ -n "$(git status --porcelain)" ]; then
@@ -87,7 +90,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          # Stage ONLY the menu photos and generated files; never add everything,
+          # which swept workspace temp (changed.txt/targets.txt) into main (B3).
+          git add assets/menu data/menu.json index.html app.js app.min.js
+          if git diff --cached --quiet; then
+            echo "nothing staged; skipping commit"
+            exit 0
+          fi
           git commit -m "chore: strip EXIF and convert menu photos to webp [photo-process]"
           sha=$(git rev-parse HEAD)
 
