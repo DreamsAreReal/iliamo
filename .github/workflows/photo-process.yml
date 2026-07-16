@@ -24,6 +24,7 @@ on:
 # Commit the cleaned photo back; nothing else is needed.
 permissions:
   contents: write
+  statuses: write
 
 concurrency:
   group: photo-process
