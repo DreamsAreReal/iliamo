@@ -104,9 +104,11 @@ Canonical bullets for every kind of change (keep the pattern exactly):
 ```
 
 Every changed item MUST appear as a bullet with its REAL prices copied from
-the diff: the check verifies the item names AND both price values (old and
-new) against the actual change — a misremembered number blocks the merge.
-Do not promise anything beyond this template (no speed guarantees).
+the diff, in the exact «было <old> → стало <new>» shape. The check reads the
+old value from the menu before your change and the new value after it, and
+compares them to your bullet: a wrong old value, a wrong new value, or a
+swapped direction blocks the merge. Do not promise anything beyond this
+template (no speed guarantees).
 
 ## Owner phrases -> what to do
 
