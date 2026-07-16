@@ -36,8 +36,8 @@ Codex; the owner-facing guide is **КАК-МЕНЯТЬ-САЙТ.md**).
 
 Publication goes through a pull request into `main` — never push to `main`
 directly (`main` is protected by the required `check` and `guard` statuses;
-direct pushes bypass the pre-merge safety net and are rolled back by the
-push-watchdog workflow when red).
+direct pushes bypass the pre-merge safety net — when one turns red, the
+push-watchdog workflow prepares a revert PR for the owner to confirm).
 
 The delivery pipeline (see `.github/workflows/`):
 
@@ -49,10 +49,12 @@ The delivery pipeline (see `.github/workflows/`):
   merged automatically; anything touching code, styles source or workflows
   waits for the owner. It also dispatches the post-merge smoke and deletes
   the merged branch.
-- **smoke** — after each deploy, verifies that production serves exactly what
-  `main` holds (byte-for-byte); on failure prepares a revert PR.
+- **smoke** — after each deploy, verifies that the production `index.html`
+  matches `main` byte-for-byte; on failure prepares a revert PR for the
+  owner to confirm.
 - **push-watchdog** — direct pushes to `main` (admin bypass): green ones get
-  the smoke, red ones get an automatic revert PR.
+  the smoke, red ones get a prepared revert PR (the owner confirms the
+  rollback).
 
 Cloudflare Pages is connected to this repository and redeploys `iliamo.bar`
 on every change of `main` (no build command; the site is served as static

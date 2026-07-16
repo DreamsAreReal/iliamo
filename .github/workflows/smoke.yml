@@ -1,8 +1,8 @@
 name: smoke
 
 # Post-deploy smoke: after Cloudflare Pages finishes deploying main, verify
-# that production serves exactly what main holds (byte-for-byte index.html;
-# a bare HTTP 200 proves nothing — the project answers 200 on any path).
+# that the production index.html matches main byte-for-byte (a bare HTTP 200
+# proves nothing — the project answers 200 on any path).
 #
 # Triggers (all facts verified live on 2026-07-15):
 #   * check_run "Cloudflare Pages" — CF reports every deploy as a check run
@@ -11,15 +11,22 @@ name: smoke
 #     after auto-merge of PR #12 the CF check run completed and no workflow
 #     started — the check suite inherits the GITHUB_TOKEN actor, so the
 #     golden path (auto-merged PRs) would go unchecked.
-#   * schedule (cron, every 5 min) — the guaranteed net that covers
-#     auto-merged deploys; a smoke pass is idempotent, so overlap with
-#     check_run runs is harmless (revert PRs are deduplicated).
+#   * schedule (cron "*/5", but OBSERVED ticks are sparse and irregular —
+#     1.5–2.5 hours apart, M3-R1) — a background safety net, NOT a
+#     guarantee; deterministic coverage comes from the explicit dispatch in
+#     automerge.yml and push-watchdog.yml. Overlapping runs are harmless
+#     (a smoke pass is idempotent, revert PRs are deduplicated).
 #   * workflow_dispatch — manual runs and failure-path testing: expect_sha256
 #     replaces the reference hash with a deliberately wrong one WITHOUT
-#     touching production.
+#     touching production. Inputs are only a hint: before alarming the owner
+#     the run re-verifies production against the REAL main, so an injected
+#     dispatch can never create a revert PR (M3-R1).
 #
-# On failure the workflow prepares a revert PR (branch revert/*, excluded
-# from automerge — the owner or Codex confirms it) with a Russian comment.
+# On failure the workflow PREPARES a revert PR (branch revert/*, excluded
+# from automerge) — the rollback happens only when the owner (or Codex on
+# the owner's phrase) confirms the merge. Deduplication is keyed by the bad
+# commit sha; a stale open revert PR is closed automatically so it cannot
+# silence the rollback of a newer breakage.
 # GITHUB_TOKEN trap: pushes/PRs made with GITHUB_TOKEN trigger no workflows,
 # so the required "check" context would hang "expected" forever on the
 # revert PR. The smoke run therefore executes `python3 build.py --check` on
@@ -76,6 +83,16 @@ jobs:
           fi
           if python3 tools/smoke_check.py --url "$PROD_URL" $extra; then
             echo "healthy=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "$extra" ]; then
+            # Inputs are only a hint (M3-R1): re-verify against the REAL
+            # reference before alarming the owner. An injected mismatch that
+            # reality does not confirm must never create a revert PR.
+            if python3 tools/smoke_check.py --url "$PROD_URL"; then
+              echo "INJECTED failure not confirmed by reality — no revert PR"
+              echo "healthy=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "healthy=false" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "healthy=false" >> "$GITHUB_OUTPUT"
           fi
@@ -83,16 +100,33 @@ jobs:
       - name: Prepare a revert PR (owner confirms it — never auto-merged)
         if: steps.smoke.outputs.healthy == 'false'
         run: |
-          # One open revert PR at a time: do not pile up duplicates.
-          open_reverts=$(gh pr list --repo "$REPO" --state open \
-            --json headRefName --jq '[.[] | select(.headRefName | startswith("revert/"))] | length')
-          if [ "$open_reverts" -gt 0 ]; then
-            echo "an open revert PR already exists, not creating another"
-            exit 0
-          fi
-
           bad_sha=$(git rev-parse HEAD)
           short_sha=$(git rev-parse --short HEAD)
+
+          # Deduplication key = the bad commit sha (M3-R1): an open revert PR
+          # for the SAME sha -> skip; a stale one (different sha) is closed
+          # so it cannot silence the rollback of a newer breakage.
+          gh pr list --repo "$REPO" --state open \
+            --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("revert/")) | "\(.number) \(.headRefName)"' \
+            > open_reverts.txt || true
+          while read -r pr_number head_ref; do
+            [ -n "$pr_number" ] || continue
+            case "$head_ref" in
+              "revert/$short_sha-"*)
+                echo "revert PR #$pr_number for $short_sha already open, not duplicating"
+                exit 0
+                ;;
+              *)
+                echo "closing stale revert PR #$pr_number ($head_ref)"
+                gh pr comment "$pr_number" --repo "$REPO" \
+                  --body "Ситуация изменилась: на сайте более новое изменение, и этот откат устарел. Закрываю его и готовлю новый."
+                gh pr close "$pr_number" --repo "$REPO" --delete-branch \
+                  || gh pr close "$pr_number" --repo "$REPO"
+                ;;
+            esac
+          done < open_reverts.txt
+
           branch="revert/$short_sha-$GITHUB_RUN_ID"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

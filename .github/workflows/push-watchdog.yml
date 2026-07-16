@@ -2,27 +2,36 @@ name: push-watchdog
 
 # Closes the direct-push hole (observed live, see docs/evidence/F11): the
 # owner's Codex session can push straight to main through the admin bypass,
-# so a broken commit deploys BEFORE any check turns red. This watchdog
-# reacts to the completed build-check run of every direct push to main:
-#   * red   -> prepare a revert PR (branch revert/*, never auto-merged;
-#              mirrors the proven revert mechanism of smoke.yml) with a
-#              Russian owner comment;
-#   * green -> dispatch the post-deploy smoke, exactly like the automerge
-#              workflow does after a merge.
+# so a broken commit deploys BEFORE any check turns red.
 #
-# Trigger notes (facts verified live in M1/M2):
-#   * pushes made by humans and by the owner's Codex DO create build-check
-#     runs, so workflow_run fires for them;
-#   * merges made by GITHUB_TOKEN emit no workflow_run events, but those
-#     commits pass the required `check` + `guard` gates BEFORE the merge and
-#     get their smoke dispatched by automerge.yml — no coverage gap;
-#   * build-check also runs on pull requests; those runs are pre-merge and
-#     already policed, so the job condition skips everything but pushes to
-#     main (the skipped-run history doubles as no-false-alarm evidence).
+# Design (M3-R1 revision — judge only the SETTLED state):
+#   * the completed build-check run of a main push is only a WAKE-UP CALL;
+#   * after a debounce the watchdog compares the push with the current HEAD
+#     of main — if a newer push exists, this run SKIPS (the newest push's own
+#     run owns the verdict). The observed Codex pattern is a burst of pushes
+#     (menu -> bump -> inline) with red intermediate commits that self-heal
+#     in ~25 s; reverting an intermediate commit would raise a false alarm;
+#   * the verdict itself comes from an INDEPENDENT local `build.py --check`
+#     of the settled HEAD — fail-closed by construction: cancelled/timed_out
+#     runs and injected signals cannot fake the actual tree state;
+#   * red settled HEAD -> prepare a revert PR (branch revert/*, never
+#     auto-merged, both required contexts injected) with a Russian owner
+#     comment; deduplication is keyed by the BAD COMMIT SHA, and a stale
+#     open revert PR (different bad sha) is closed automatically so it can
+#     never silence the rollback of a real, newer breakage;
+#   * green settled HEAD -> dispatch the post-deploy smoke, exactly like the
+#     automerge workflow does after a merge.
+#
+# GITHUB_TOKEN merges emit no workflow_run events, but those commits pass
+# the required `check` + `guard` gates BEFORE the merge and get their smoke
+# dispatched by automerge.yml — no coverage gap. build-check also runs on
+# pull requests; those runs are pre-merge and already policed, so the job
+# condition skips everything but pushes to main.
 #
 # Failure-path testing without touching production: workflow_dispatch with
-# `simulate_bad_sha` walks the revert path for a given main commit as if its
-# build-check had failed (same idea as expect_sha256 in smoke.yml).
+# `simulate_bad_sha` walks the revert path for a given main commit; the
+# resulting PR and comment are EXPLICITLY marked as a test run in Russian,
+# so an injected dispatch can never masquerade as a real owner alarm.
 
 on:
   workflow_run:
@@ -31,13 +40,13 @@ on:
   workflow_dispatch:
     inputs:
       simulate_bad_sha:
-        description: "Treat this main commit as red (failure-path test, production untouched)"
+        description: "TEST MODE: treat this main commit as red; the revert PR is explicitly marked as a test"
         required: false
         default: ""
 
 permissions:
   contents: write        # push the revert branch
-  pull-requests: write   # open the revert PR, owner comment
+  pull-requests: write   # open/close revert PRs, owner comments
   statuses: write        # inject the required contexts on the revert branch
   actions: write         # dispatch the smoke workflow
 
@@ -52,60 +61,106 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
     steps:
-      - name: Decide the verdict for this push
-        id: verdict
-        env:
-          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          SIMULATED: ${{ github.event.inputs.simulate_bad_sha }}
-        run: |
-          if [ -n "$SIMULATED" ]; then
-            echo "FAILURE-PATH TEST: simulating a red build-check on $SIMULATED"
-            echo "bad=true" >> "$GITHUB_OUTPUT"
-            echo "sha=$SIMULATED" >> "$GITHUB_OUTPUT"
-          elif [ "$CONCLUSION" = "failure" ]; then
-            echo "bad=true" >> "$GITHUB_OUTPUT"
-            echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
-          else
-            echo "bad=false" >> "$GITHUB_OUTPUT"
-            echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
-            echo "green build-check on main push $HEAD_SHA (conclusion: ${CONCLUSION:-manual})"
-          fi
-
-      - name: Dispatch the post-deploy smoke on a green push
-        if: steps.verdict.outputs.bad == 'false'
-        run: |
-          gh workflow run smoke.yml --repo "$REPO"
-          echo "green direct push: post-deploy smoke dispatched"
-
       - uses: actions/checkout@v4
-        if: steps.verdict.outputs.bad == 'true'
         with:
           ref: main
           fetch-depth: 0
 
       - uses: actions/setup-python@v5
-        if: steps.verdict.outputs.bad == 'true'
         with:
           python-version: "3.x"
 
-      - name: Prepare a revert PR (mirrors smoke.yml; the owner confirms it)
-        if: steps.verdict.outputs.bad == 'true'
+      - name: Let the push series settle (debounce)
+        if: github.event_name == 'workflow_run'
+        # The observed owner-Codex pattern self-heals in ~25 s; 90 s of quiet
+        # makes an intermediate red state practically never the final word.
+        run: sleep 90
+
+      - name: Judge the settled state of main
+        id: verdict
         env:
-          BAD_SHA: ${{ steps.verdict.outputs.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SIMULATED: ${{ github.event.inputs.simulate_bad_sha }}
         run: |
-          # One open revert PR at a time: do not pile up duplicates.
-          open_reverts=$(gh pr list --repo "$REPO" --state open \
-            --json headRefName --jq '[.[] | select(.headRefName | startswith("revert/"))] | length')
-          if [ "$open_reverts" -gt 0 ]; then
-            echo "an open revert PR already exists, not creating another"
+          git fetch --quiet origin main
+          head=$(git rev-parse origin/main)
+
+          if [ -n "$SIMULATED" ]; then
+            echo "TEST MODE: simulating a red build-check on $SIMULATED"
+            echo "verdict=red" >> "$GITHUB_OUTPUT"
+            echo "sha=$SIMULATED" >> "$GITHUB_OUTPUT"
+            echo "test_mode=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          if [ -n "$EVENT_HEAD_SHA" ] && [ "$head" != "$EVENT_HEAD_SHA" ]; then
+            # A newer push exists: its own build-check run wakes its own
+            # watchdog, which will judge the then-current HEAD. Judging a
+            # superseded push here is exactly the false-alarm generator
+            # found in review M3-R1.
+            echo "superseded: push $EVENT_HEAD_SHA is no longer HEAD ($head owns the verdict)"
+            echo "verdict=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # INDEPENDENT re-verification of the settled HEAD. The workflow_run
+          # conclusion is deliberately ignored: a cancelled or timed-out
+          # build-check (fail-open in the previous revision) and any injected
+          # signal are all overruled by the actual state of the tree.
+          git checkout --quiet "$head"
+          if python3 build.py --check; then
+            echo "settled HEAD $head is green"
+            echo "verdict=green" >> "$GITHUB_OUTPUT"
+          else
+            echo "settled HEAD $head is RED"
+            echo "verdict=red" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sha=$head" >> "$GITHUB_OUTPUT"
+          echo "test_mode=false" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch the post-deploy smoke on a green settled state
+        if: steps.verdict.outputs.verdict == 'green'
+        run: |
+          gh workflow run smoke.yml --repo "$REPO"
+          echo "green settled main: post-deploy smoke dispatched"
+
+      - name: Prepare a revert PR (dedup by bad sha; the owner confirms it)
+        if: steps.verdict.outputs.verdict == 'red'
+        env:
+          BAD_SHA: ${{ steps.verdict.outputs.sha }}
+          TEST_MODE: ${{ steps.verdict.outputs.test_mode }}
+        run: |
           short_sha=$(git rev-parse --short "$BAD_SHA")
+
+          # Deduplication key = the bad commit sha (branch revert/<sha>-<run>).
+          # An open revert PR for the SAME sha -> nothing to do. An open
+          # revert PR for a DIFFERENT (stale) sha is closed automatically:
+          # it must never silence the rollback of a real, newer breakage.
+          gh pr list --repo "$REPO" --state open \
+            --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("revert/")) | "\(.number) \(.headRefName)"' \
+            > open_reverts.txt || true
+          while read -r pr_number head_ref; do
+            [ -n "$pr_number" ] || continue
+            case "$head_ref" in
+              "revert/$short_sha-"*)
+                echo "revert PR #$pr_number for $short_sha already open, not duplicating"
+                exit 0
+                ;;
+              *)
+                echo "closing stale revert PR #$pr_number ($head_ref)"
+                gh pr comment "$pr_number" --repo "$REPO" \
+                  --body "Ситуация изменилась: на сайте более новое изменение, и этот откат устарел. Закрываю его и готовлю новый."
+                gh pr close "$pr_number" --repo "$REPO" --delete-branch \
+                  || gh pr close "$pr_number" --repo "$REPO"
+                ;;
+            esac
+          done < open_reverts.txt
+
           branch="revert/$short_sha-$GITHUB_RUN_ID"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --quiet origin/main
           git checkout -b "$branch"
           if ! git revert --no-edit "$BAD_SHA"; then
             # Later pushes conflict with the revert: a fresh watchdog run for
@@ -135,20 +190,32 @@ jobs:
             -f state=success -f context=guard \
             -f description="revert branch created by the trusted push-watchdog workflow"
 
-          # Owner-facing texts are Russian by design.
+          # Owner-facing texts are Russian by design. A simulated run is
+          # explicitly labelled so it can never read as a real alarm.
+          if [ "$TEST_MODE" = "true" ]; then
+            test_banner="⚠️ ТЕСТОВЫЙ ПРОГОН системы отката — сайт в порядке, мержить не нужно."
+            title_suffix=" [ТЕСТ]"
+          else
+            test_banner=""
+            title_suffix=""
+          fi
           {
             printf '%s\n\n' "## Отчёт"
+            if [ -n "$test_banner" ]; then printf '%s\n\n' "$test_banner"; fi
             printf '%s\n\n' "Изменение, отправленное напрямую на сайт (коммит $BAD_SHA), не прошло проверку. Этот PR его откатывает."
             printf '%s\n' "Автоматической публикации отката не будет — его подтверждает владелец."
           } > pr-body.md
           pr_url=$(gh pr create --repo "$REPO" --head "$branch" --base main \
-            --title "revert: roll back $short_sha (direct push failed build-check)" \
+            --title "revert: roll back $short_sha (direct push failed build-check)$title_suffix" \
             --body-file pr-body.md)
-          gh pr comment "$pr_url" --repo "$REPO" --body "Прямое изменение не прошло проверку, я подготовил откат. Проверка отката: $state. Чтобы вернуть сайт в рабочее состояние — подтвердите этот PR (кнопка Merge) или напишите Codex: «верни как было»."
+          {
+            if [ -n "$test_banner" ]; then printf '%s\n' "$test_banner"; fi
+            printf '%s\n' "Прямое изменение не прошло проверку, я подготовил откат. Проверка отката: $state. Чтобы вернуть сайт в рабочее состояние — подтвердите этот PR (кнопка Merge) или напишите Codex: «верни как было»."
+          } | gh pr comment "$pr_url" --repo "$REPO" --body-file -
           echo "revert PR: $pr_url"
 
-      - name: Fail the run when the push was red
+      - name: Fail the run when the settled state was genuinely red
         if: >-
-          steps.verdict.outputs.bad == 'true' &&
-          github.event_name != 'workflow_dispatch'
+          steps.verdict.outputs.verdict == 'red' &&
+          steps.verdict.outputs.test_mode != 'true'
         run: exit 1
