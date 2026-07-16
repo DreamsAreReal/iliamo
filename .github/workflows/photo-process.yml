@@ -1,0 +1,89 @@
+name: photo-process
+
+# Owner photos land in assets/menu/ by a DIRECT push to main (ADR-0003 / the
+# owner guide): the repo is public, so camera EXIF/GPS must not stay there, and
+# raw jpg/HEIC bloat the page. This job strips metadata and converts each newly
+# pushed photo to a clean webp, rewrites any data/menu.json reference to match,
+# and commits the result back.
+#
+# Trigger asymmetry (verified repeatedly in this project): a human/owner push
+# to main fires `on: push`; a GITHUB_TOKEN bot push fires NO workflow. So the
+# commit this job makes cannot re-trigger the job — the anti-loop backbone.
+# Belt-and-suspenders: the processor skips files that are already clean webp
+# (webp AND no EXIF), so even a re-run would be a no-op.
+#
+# Scope: only the photo paths ACTUALLY changed by this push are processed, so
+# the job never rewrites unrelated existing assets.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "assets/menu/**"
+
+# Commit the cleaned photo back; nothing else is needed.
+permissions:
+  contents: write
+
+concurrency:
+  group: photo-process
+  cancel-in-progress: false
+
+jobs:
+  strip-and-convert:
+    runs-on: ubuntu-latest
+    # A merge/rebase by the bot would carry the marker below; skip our own
+    # commits as a second guard against loops.
+    if: "!contains(github.event.head_commit.message, '[photo-process]')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # need the previous commit to diff the pushed paths
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Pillow (webp) and pillow-heif (iPhone HEIC)
+        run: python3 -m pip install --quiet Pillow pillow-heif
+
+      - name: Process only the photos this push added or changed
+        id: proc
+        run: |
+          # Photos changed by this push (added/copied/modified/renamed), still
+          # present in the tree, under assets/menu/.
+          before='${{ github.event.before }}'
+          if ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+            before=HEAD~1
+          fi
+          git diff --name-only --diff-filter=ACMR "$before" HEAD -- 'assets/menu/**' \
+            > changed.txt || true
+          echo "changed photo paths:"; cat changed.txt
+          # Keep only files that still exist (a delete leaves no file).
+          : > targets.txt
+          while IFS= read -r p; do
+            [ -n "$p" ] && [ -f "$p" ] && echo "$p" >> targets.txt
+          done < changed.txt
+          if [ ! -s targets.txt ]; then
+            echo "no photo files to process"
+            echo "did_work=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 tools/photo_process.py $(tr '\n' ' ' < targets.txt)
+          # Keep index.html / app.min.js consistent if a menu.json ref changed.
+          python3 build.py
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "did_work=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "did_work=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit the cleaned photos back
+        if: steps.proc.outputs.did_work == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: strip EXIF and convert menu photos to webp [photo-process]"
+          git push origin HEAD:main
+          echo "cleaned photos pushed back to main"
