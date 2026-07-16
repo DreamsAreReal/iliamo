@@ -117,7 +117,7 @@ Do not promise anything beyond this template (no speed guarantees).
 | «убери Bloody Mary»                  | delete that item object |
 | «переименуй … / поправь описание»    | edit `name` / `desc` |
 | «добавь категорию Десерты»           | add a `categories[]` entry AND a matching `sections[]` entry, same `id` |
-| «поставь фото …» (file already sent) | set `"image": "assets/menu/<file>"` (see Photos) |
+| «поставь фото …» / «я загрузил …»    | reference the uploaded file (see Photos) |
 | «поменяй ссылку на инстаграм»        | edit `brand.links[]` (http(s) urls only) |
 | «верни как было»                     | revert the change in `data/menu.json`, rebuild, new PR |
 | «обнови ветку и сделай заново»       | merge `main` into your branch, rerun `python3 build.py`, push |
@@ -142,6 +142,9 @@ sections[]    — one per category id: { id, title, label, theme, note, groups[]
 - Item names must not contain `<`, `>` or control characters.
 - `icon`: reuse the glyph neighbouring items use (`beer`, `cocktail`, `shot`,
   `wine`, `soft`, `coffee`, `tea`, `food`, `salad`, `soup`, `sauce`, `lemonade`).
+- **Duplicate names**: items may share a `name` (two «Пшеничное» in different
+  groups/prices). Disambiguate by group and current price; name the exact one
+  in the report (group + price) so the owner can confirm.
 
 ## Price confirmation (priceConfirmed)
 
@@ -152,11 +155,13 @@ Never add `priceConfirmed` on your own initiative.
 
 ## Photos
 
-You cannot create or upload binary files. The owner uploads photos to
-`assets/menu/` separately (the owner guide explains how). When asked to attach
-a photo, reference the uploaded file: `"image": "assets/menu/<file>"`.
-The build fails loudly if the file does not exist — tell the owner the exact
-file name you expected instead of guessing.
+You cannot commit new binaries, but the owner uploads photos straight to
+`assets/menu/` (see owner guide) — often with the raw camera name (e.g.
+`IMG_1234.HEIC`). When asked to attach one: set `"image": "assets/menu/<file>"`.
+You MAY tidy the name with a plain `git mv` of that EXISTING file (a rename is
+allowed — it adds no new binary) and, if `cwebp`/`Pillow` exist in the sandbox,
+convert it to `.webp` the same way. The build fails loudly if the referenced
+file is missing — tell the owner the exact name you expected, do not guess.
 
 ## Status questions (no network!)
 
